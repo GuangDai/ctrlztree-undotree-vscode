@@ -220,7 +220,8 @@ function groupIntoHunks(operations: LineDiffOperation[], contextLines: number): 
     const hunks: DiffHunk[] = [];
     let currentHunk: DiffHunk | null = null;
     
-    for (const op of operations) {
+    for (let idx = 0; idx < operations.length; idx++) {
+        const op = operations[idx];
         if (op.type === 'keep') {
             if (currentHunk && op.lines.length <= contextLines * 2) {
                 // Add to current hunk if it's close enough
@@ -243,7 +244,7 @@ function groupIntoHunks(operations: LineDiffOperation[], contextLines: number): 
                 }
                 
                 // Start new hunk if there are more operations after this keep
-                const hasMoreChanges = operations.indexOf(op) < operations.length - 1;
+                const hasMoreChanges = idx < operations.length - 1;
                 if (hasMoreChanges) {
                     const leadingContext = Math.min(contextLines, op.lines.length);
                     const contextStart = Math.max(0, op.lines.length - leadingContext);
