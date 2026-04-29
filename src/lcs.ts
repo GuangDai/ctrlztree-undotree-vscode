@@ -86,12 +86,52 @@ export function serializeDiff(operations: DiffOperation[]): string {
 export function deserializeDiff(diffStr: string): DiffOperation[] {
     try {
         const operations = JSON.parse(diffStr);
-        if (!Array.isArray(operations)) throw new Error('Deserialized diff is not an array');
-        // (Skipped verbose validation to keep it brief, but your old validation is fine here too)
+        if (!Array.isArray(operations)) {
+            throw new Error('Deserialized diff is not an array');
+        }
+        for (let index = 0; index < operations.length; index++) {
+            validateDiffOperation(operations[index], index);
+        }
         return operations;
     } catch (error) {
         throw new Error(`Failed to deserialize diff: ${error instanceof Error ? error.message : String(error)}`);
     }
+}
+
+function validateDiffOperation(operation: unknown, index: number): asserts operation is DiffOperation {
+    if (!operation || typeof operation !== 'object' || Array.isArray(operation)) {
+        throw new Error(`Diff operation at index ${index} is not an object`);
+    }
+
+    const candidate = operation as Partial<DiffOperation>;
+    if (candidate.type !== 'keep' && candidate.type !== 'add' && candidate.type !== 'remove') {
+        throw new Error(`Diff operation at index ${index} has invalid type`);
+    }
+
+    if (!isNonNegativeInteger(candidate.position)) {
+        throw new Error(`Diff operation at index ${index} has invalid position`);
+    }
+
+    if (candidate.type === 'add') {
+        if (typeof candidate.content !== 'string') {
+            throw new Error(`Diff add operation at index ${index} requires string content`);
+        }
+        if (candidate.length !== undefined) {
+            throw new Error(`Diff add operation at index ${index} must not include length`);
+        }
+        return;
+    }
+
+    if (!isNonNegativeInteger(candidate.length)) {
+        throw new Error(`Diff ${candidate.type} operation at index ${index} requires valid length`);
+    }
+    if (candidate.content !== undefined) {
+        throw new Error(`Diff ${candidate.type} operation at index ${index} must not include content`);
+    }
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 export function generateUnifiedDiff(originalContent: string, newContent: string, options?: { contextLines?: number; filename?: string; }): string {
