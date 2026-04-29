@@ -484,7 +484,7 @@ export function createWebviewManager({
                         handleTreeReload(docUriString, panel);
                         return;
                     case 'requestTreeReset':
-                        handleTreeReset(docUriString, panel);
+                        await handleTreeReset(docUriString, panel);
                         return;
                     case 'webviewError':
                         outputChannel.appendLine(`CtrlZTree: Webview CRITICAL ERROR: ${message.error.message} Stack: ${message.error.stack}`);
@@ -697,7 +697,7 @@ export function createWebviewManager({
         }
     }
 
-    function handleTreeReset(docUriString: string, panel: vscode.WebviewPanel) {
+    async function handleTreeReset(docUriString: string, panel: vscode.WebviewPanel) {
         try {
             const targetDocument = vscode.workspace.textDocuments.find(doc => doc.uri.toString() === docUriString);
             if (!targetDocument) {
@@ -705,9 +705,21 @@ export function createWebviewManager({
                 return;
             }
 
+            const existingTree = historyTrees.get(docUriString);
+            const nodeCount = existingTree ? existingTree.getNodeCount() : 0;
+
+            const choice = await vscode.window.showWarningMessage(
+                `Reset history tree for this document? (${nodeCount} nodes will be lost)`,
+                { modal: true },
+                'Reset'
+            );
+
+            if (choice !== 'Reset') {
+                return;
+            }
+
+            outputChannel.appendLine(`CtrlZTree: User confirmed reset for ${docUriString} (${nodeCount} nodes discarded)`);
             historyTrees.delete(docUriString);
-            // Create fresh tree with current document content
-            // The constructor already initializes with set(content), so we don't call set() again
             const newTree = new CtrlZTree(targetDocument.getText());
             historyTrees.set(docUriString, newTree);
 

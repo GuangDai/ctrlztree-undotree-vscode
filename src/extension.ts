@@ -10,6 +10,7 @@ import { createDiffContentRegistry, DiffContentRegistry } from './ui/diffContent
 import { clampConfig } from './config/configService';
 import { ApplyEditTokenSet, ApplyEditToken } from './concurrency/applyEditTokens';
 import { applyEditAndVerify, ApplyEditResult } from './utils/editorApply';
+import { HistoryTreeProvider } from './ui/historyTreeProvider';
 
 const extensionState = createExtensionState();
 
@@ -69,10 +70,11 @@ export function activate(context: vscode.ExtensionContext) {
 
         const config = getConfig();
 
-        // Prune if tree exceeds max nodes (only if pruning enabled)
+        // W4 TODO: Replace legacy pruneToMaxNodes with PruningEngine plan + archive.
+        // Hard-deleting nodes from the legacy tree risks losing redo branches.
+        // Temporarily disabled until W4 PruningEngine is wired into runtime.
         if (config.enablePruning && tree.getNodeCount() > config.maxHistoryNodesPerDocument) {
-            tree.pruneToMaxNodes(Math.floor(config.maxHistoryNodesPerDocument * 0.95));
-            outputChannel.appendLine(`CtrlZTree: Pruned history for ${key} (now ${tree.getNodeCount()} nodes)`);
+            outputChannel.appendLine(`CtrlZTree: History for ${key} exceeds maxNodes (${tree.getNodeCount()} > ${config.maxHistoryNodesPerDocument}). Pruning not yet wired - nodes retained.`);
         }
 
         // Clean up old histories if too many documents are tracked (only if pruning enabled)
@@ -175,6 +177,85 @@ export function activate(context: vscode.ExtensionContext) {
     if (vscode.window.activeTextEditor) {
         void webviewManager.handleActiveEditorChange(vscode.window.activeTextEditor);
     }
+
+    // W5: TreeView provider
+    const historyTreeProvider = new HistoryTreeProvider();
+    context.subscriptions.push(
+        vscode.window.registerTreeDataProvider('ctrlztree.history', historyTreeProvider)
+    );
+
+    // Update TreeView when active editor changes
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(editor => {
+            if (editor && isTrackableDocument(editor.document)) {
+                const tree = getOrCreateTree(editor.document);
+                historyTreeProvider.setTree(tree, editor.document.uri.toString());
+            } else {
+                historyTreeProvider.clear();
+            }
+        })
+    );
+
+    // Initialize TreeView for current editor
+    if (vscode.window.activeTextEditor && isTrackableDocument(vscode.window.activeTextEditor.document)) {
+        const tree = getOrCreateTree(vscode.window.activeTextEditor.document);
+        historyTreeProvider.setTree(tree, vscode.window.activeTextEditor.document.uri.toString());
+    }
+
+    // W5: TreeView command handlers
+    context.subscriptions.push(
+        vscode.commands.registerCommand('ctrlztree.history.refresh', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && isTrackableDocument(editor.document)) {
+                const tree = getOrCreateTree(editor.document);
+                historyTreeProvider.setTree(tree, editor.document.uri.toString());
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('ctrlztree.history.navigateToNode', async (item?: { nodeHash: string }) => {
+            if (!item?.nodeHash) return;
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || !isTrackableDocument(editor.document)) return;
+
+            const document = editor.document;
+            const tree = getOrCreateTree(document);
+            const savedHead = tree.getHead();
+            if (!tree.setHead(item.nodeHash)) return;
+
+            const result = await applyTreeStateToDocument(document, tree, 'checkout', editTokens);
+            if (!result.ok && savedHead) {
+                tree.setHead(savedHead);
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('ctrlztree.history.diffWithParent', async (item?: { nodeHash: string }) => {
+            if (!item?.nodeHash) return;
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || !isTrackableDocument(editor.document)) return;
+
+            const document = editor.document;
+            const tree = getOrCreateTree(document);
+            const allNodes = tree.getAllNodes();
+            const node = allNodes.get(item.nodeHash);
+            if (!node || !node.parent) return;
+
+            const parentContent = tree.getContent(node.parent);
+            const currentContent = tree.getContent(item.nodeHash);
+            const parentShortHash = node.parent.substring(0, 8);
+            const shortHash = item.nodeHash.substring(0, 8);
+            const fileName = document.uri.path.split(/[\\/]/).pop() || 'document';
+
+            const diffId = diffContentRegistry.register(parentContent, currentContent, fileName);
+            const parentUri = vscode.Uri.parse(`${DIFF_SCHEME}:${diffId}/original`);
+            const currentUri = vscode.Uri.parse(`${DIFF_SCHEME}:${diffId}/modified`);
+
+            await vscode.commands.executeCommand('vscode.diff', parentUri, currentUri, `${fileName}: ${parentShortHash} ↔ ${shortHash}`, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+        })
+    );
 
     const undoCommand = vscode.commands.registerCommand('ctrlztree.undo', async () => {
         const editor = vscode.window.activeTextEditor;
@@ -418,11 +499,14 @@ async function applyRedoBranch(
     webviewManager: WebviewManager,
     editTokens: ApplyEditTokenSet
 ): Promise<ApplyEditResult> {
+    const savedHead = tree.getHead();
     tree.setHead(targetHash);
     const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens);
     if (result.ok) {
         await markEditorCleanIfAtInitialSnapshot(tree, document);
         updatePanelForDocument(tree, document.uri.toString(), webviewManager);
+    } else if (savedHead) {
+        tree.setHead(savedHead);
     }
     return result;
 }
