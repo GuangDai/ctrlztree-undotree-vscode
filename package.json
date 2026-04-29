@@ -34,7 +34,7 @@
     "onEditSession:file"
   ],
   "main": "./out/extension.js",
-  "contributes": {
+    "contributes": {
     "commands": [
       {
         "command": "ctrlztree.undo",
@@ -47,6 +47,18 @@
       {
         "command": "ctrlztree.visualize",
         "title": "CtrlZTree: Visualize History Tree"
+      },
+      {
+        "command": "ctrlztree.history.refresh",
+        "title": "CtrlZTree: Refresh History Tree"
+      },
+      {
+        "command": "ctrlztree.history.navigateToNode",
+        "title": "CtrlZTree: Navigate to Node"
+      },
+      {
+        "command": "ctrlztree.history.diffWithParent",
+        "title": "CtrlZTree: Diff with Parent"
       }
     ],
     "keybindings": [
@@ -69,6 +81,35 @@
         "when": "editorTextFocus"
       }
     ],
+    "views": {
+      "ctrlztree": [
+        {
+          "id": "ctrlztree.history",
+          "name": "History"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ctrlztree",
+          "title": "CtrlZTree",
+          "icon": "$(history)"
+        }
+      ]
+    },
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "ctrlztree.history.navigateToNode",
+          "when": "view == ctrlztree.history && viewItem == ctrlztree.node.branchTip"
+        },
+        {
+          "command": "ctrlztree.history.diffWithParent",
+          "when": "view == ctrlztree.history && viewItem =~ /ctrlztree.node/"
+        }
+      ]
+    },
     "configuration": {
       "title": "CtrlZTree",
       "properties": {
