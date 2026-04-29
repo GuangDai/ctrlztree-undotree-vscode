@@ -5,6 +5,7 @@ import { ExtensionState } from '../state/extensionState';
 import { DIFF_SCHEME } from '../constants';
 import { markEditorCleanIfAtInitialSnapshot } from '../utils/editorState';
 import { DiffContentRegistry } from '../ui/diffContentRegistry';
+import { isWebviewIncomingMessage } from './messageSchema';
 
 interface ManagerDeps {
     context: vscode.ExtensionContext;
@@ -454,6 +455,10 @@ export function createWebviewManager({
 
         panel.webview.onDidReceiveMessage(
             async message => {
+                if (!isWebviewIncomingMessage(message)) {
+                    outputChannel.appendLine('CtrlZTree: Ignored invalid/unknown webview message command.');
+                    return;
+                }
                 const panelContext = getPanelDocumentContext(panel);
                 if (!panelContext) {
                     outputChannel.appendLine('CtrlZTree: No panel context available for message handling.');
