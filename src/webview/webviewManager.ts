@@ -4,6 +4,7 @@ import { CtrlZTree, TreeNode } from '../model/ctrlZTree';
 import { ExtensionState } from '../state/extensionState';
 import { DIFF_SCHEME } from '../constants';
 import { markEditorCleanIfAtInitialSnapshot } from '../utils/editorState';
+import { DiffContentRegistry } from '../ui/diffContentRegistry';
 
 interface ManagerDeps {
     context: vscode.ExtensionContext;
@@ -11,6 +12,7 @@ interface ManagerDeps {
     state: ExtensionState;
     getOrCreateTree: (document: vscode.TextDocument) => CtrlZTree;
     setIsApplyingEdit: (value: boolean) => void;
+    diffContentRegistry: DiffContentRegistry;
 }
 
 export interface WebviewManager {
@@ -25,7 +27,8 @@ export function createWebviewManager({
     outputChannel,
     state,
     getOrCreateTree,
-    setIsApplyingEdit
+    setIsApplyingEdit,
+    diffContentRegistry
 }: ManagerDeps): WebviewManager {
     const { activeVisualizationPanels, panelToFullHashMap, historyTrees, lastChangeTime, lastCursorPosition, lastChangeType, pendingChanges, documentChangeTimeouts } = state;
     const panelDocumentContexts = new Map<vscode.WebviewPanel, { docUriString: string; document: vscode.TextDocument }>();
@@ -528,8 +531,9 @@ export function createWebviewManager({
             const parentShortHash = node.parent.substring(0, 8);
             const fileName = vscode.workspace.textDocuments.find(doc => doc.uri.toString() === docUriString)?.uri.path.split(/[\\/]/).pop() || 'document';
 
-            const parentUri = vscode.Uri.parse(`${DIFF_SCHEME}:${fileName} @ ${parentShortHash}?${encodeURIComponent(parentContent)}`);
-            const currentUri = vscode.Uri.parse(`${DIFF_SCHEME}:${fileName} @ ${shortHash}?${encodeURIComponent(currentContent)}`);
+            const diffId = diffContentRegistry.register(parentContent, currentContent, fileName);
+            const parentUri = vscode.Uri.parse(`${DIFF_SCHEME}:${diffId}/original`);
+            const currentUri = vscode.Uri.parse(`${DIFF_SCHEME}:${diffId}/modified`);
 
             if (state.lastOpenedDiffEditor && !state.lastOpenedDiffEditor.document.isClosed) {
                 const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs);

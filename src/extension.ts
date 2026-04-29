@@ -6,6 +6,7 @@ import { DIFF_SCHEME, ACTION_TIMEOUT, PAUSE_THRESHOLD } from './constants';
 import { createWebviewManager, WebviewManager } from './webview/webviewManager';
 import { registerDocumentChangeTracking } from './services/changeTracker';
 import { markEditorCleanIfAtInitialSnapshot } from './utils/editorState';
+import { createDiffContentRegistry, DiffContentRegistry } from './ui/diffContentRegistry';
 
 const extensionState = createExtensionState();
 
@@ -21,9 +22,23 @@ export function activate(context: vscode.ExtensionContext) {
 
     let isApplyingEdit = false;
 
+    const diffContentRegistry = createDiffContentRegistry();
+
     const diffContentProvider = new (class implements vscode.TextDocumentContentProvider {
+        private _onDidChange = new vscode.EventEmitter<vscode.Uri>();
+        readonly onDidChange = this._onDidChange.event;
+
         provideTextDocumentContent(uri: vscode.Uri): string {
-            return uri.query;
+            const registryId = uri.authority;
+            const side = uri.path.slice(1) as 'original' | 'modified';
+            if (!registryId || (side !== 'original' && side !== 'modified')) {
+                return '';
+            }
+            const record = diffContentRegistry.get(registryId);
+            if (!record) {
+                return '';
+            }
+            return side === 'original' ? record.original : record.modified;
         }
     })();
 
@@ -90,7 +105,8 @@ export function activate(context: vscode.ExtensionContext) {
         getOrCreateTree,
         setIsApplyingEdit: value => {
             isApplyingEdit = value;
-        }
+        },
+        diffContentRegistry
     });
 
     const changeTracker = registerDocumentChangeTracking({
