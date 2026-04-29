@@ -6,6 +6,7 @@ import { DIFF_SCHEME } from '../constants';
 import { markEditorCleanIfAtInitialSnapshot } from '../utils/editorState';
 import { DiffContentRegistry } from '../ui/diffContentRegistry';
 import { isWebviewIncomingMessage } from './messageSchema';
+import { escapeHtml } from '../utils/htmlEscape';
 
 interface ManagerDeps {
     context: vscode.ExtensionContext;
@@ -351,7 +352,7 @@ export function createWebviewManager({
                 .replace(/%STYLE_URI%/g, String(styleUri))
                 .replace(/%SCRIPT_URI%/g, String(scriptUri))
                 .replace(/%VIS_NETWORK_URI%/g, String(visNetworkUri))
-                .replace(/%TITLE%/g, fileName);
+                .replace(/%TITLE%/g, escapeHtml(fileName));
             return filled;
         } catch (e: any) {
             outputChannel.appendLine(`CtrlZTree: Failed to load webview template: ${e.message}`);
