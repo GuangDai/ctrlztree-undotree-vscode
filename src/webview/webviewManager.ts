@@ -631,47 +631,55 @@ export function createWebviewManager({
             return;
         }
 
-        const success = targetTree.setHead(fullHash);
-        if (success) {
-            const token = editTokens.begin(docUriString, 'navigate');
-            try {
-                const content = targetTree.getContent();
-                const cursorPosition = targetTree.getCursorPosition();
-                const activeDoc = targetEditor.document;
-
-                const result = await applyEditAndVerify(activeDoc, content);
-
-                if (!result.ok) {
-                    vscode.window.showErrorMessage(`CtrlZTree navigation failed: ${result.error}`);
-                    return;
-                }
-
-                if (cursorPosition) {
-                    const maxLine = activeDoc.lineCount - 1;
-                    const adjustedLine = Math.min(cursorPosition.line, maxLine);
-                    const maxChar = activeDoc.lineAt(adjustedLine).text.length;
-                    const adjustedChar = Math.min(cursorPosition.character, maxChar);
-                    const adjustedPosition = new vscode.Position(adjustedLine, adjustedChar);
-                    targetEditor.selection = new vscode.Selection(adjustedPosition, adjustedPosition);
-                    targetEditor.revealRange(new vscode.Range(adjustedPosition, adjustedPosition));
-                }
-
-                await markEditorCleanIfAtInitialSnapshot(targetTree, activeDoc, {
-                    targetHash: fullHash,
-                    outputChannel
-                });
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`CtrlZTree navigation error: ${e.message}`);
-            } finally {
-                editTokens.end(token);
-            }
-
-            const navPanel = activeVisualizationPanels.get(docUriString);
-            if (navPanel) {
-                postUpdatesToWebview(navPanel, targetTree, docUriString);
-            }
-        } else {
+        const savedHead = targetTree.getHead();
+        if (!targetTree.setHead(fullHash)) {
             vscode.window.showWarningMessage(`CtrlZTree: Could not find node for hash ${shortHash}`);
+            return;
+        }
+
+        // setHead moved head; if apply fails we will rollback
+        const token = editTokens.begin(docUriString, 'navigate');
+        try {
+            const content = targetTree.getContent();
+            const cursorPosition = targetTree.getCursorPosition();
+            const activeDoc = targetEditor.document;
+
+            const result = await applyEditAndVerify(activeDoc, content);
+
+            if (!result.ok) {
+                vscode.window.showErrorMessage(`CtrlZTree navigation failed: ${result.error}`);
+                if (savedHead && savedHead !== fullHash) {
+                    targetTree.setHead(savedHead);
+                }
+                return;
+            }
+
+            if (cursorPosition) {
+                const maxLine = activeDoc.lineCount - 1;
+                const adjustedLine = Math.min(cursorPosition.line, maxLine);
+                const maxChar = activeDoc.lineAt(adjustedLine).text.length;
+                const adjustedChar = Math.min(cursorPosition.character, maxChar);
+                const adjustedPosition = new vscode.Position(adjustedLine, adjustedChar);
+                targetEditor.selection = new vscode.Selection(adjustedPosition, adjustedPosition);
+                targetEditor.revealRange(new vscode.Range(adjustedPosition, adjustedPosition));
+            }
+
+            await markEditorCleanIfAtInitialSnapshot(targetTree, activeDoc, {
+                targetHash: fullHash,
+                outputChannel
+            });
+        } catch (e: any) {
+            vscode.window.showErrorMessage(`CtrlZTree navigation error: ${e.message}`);
+            if (savedHead && savedHead !== fullHash) {
+                targetTree.setHead(savedHead);
+            }
+        } finally {
+            editTokens.end(token);
+        }
+
+        const navPanel = activeVisualizationPanels.get(docUriString);
+        if (navPanel) {
+            postUpdatesToWebview(navPanel, targetTree, docUriString);
         }
     }
 
