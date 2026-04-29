@@ -42,6 +42,11 @@ export class MemoryContentStore {
 	appendEdit(parentContent: string, nextContent: string, nodeId: NodeId, policy: SnapshotPolicy = DEFAULT_SNAPSHOT_POLICY): ContentRef {
 		this.nodeCount++;
 
+		// Clear cache for this nodeId if it was previously stored
+		if (this.entries.has(nodeId)) {
+			this.clearCacheFor(nodeId);
+		}
+
 		const diff = nextContent.length - parentContent.length;
 		const diffStr = serializeDiff(generateDiff(parentContent, nextContent));
 		const diffBytes = Buffer.byteLength(diffStr, 'utf8');
@@ -58,6 +63,15 @@ export class MemoryContentStore {
 
 		const ref: ContentRef = { kind: 'inline-diff', nodeId, bytes: diffBytes };
 		this.entries.set(nodeId, { contentRef: ref, diff: diffStr });
+		return ref;
+	}
+
+	putSnapshot(nodeId: NodeId, content: string): ContentRef {
+		if (this.entries.has(nodeId)) {
+			this.clearCacheFor(nodeId);
+		}
+		const ref: ContentRef = { kind: 'snapshot', nodeId, bytes: Buffer.byteLength(content, 'utf8') };
+		this.entries.set(nodeId, { contentRef: ref, snapshot: content });
 		return ref;
 	}
 
@@ -92,6 +106,7 @@ export class MemoryContentStore {
 		for (let i = path.length - 1; i >= 0; i--) {
 			const id = path[i];
 			const entry = this.entries.get(id);
+			const isRoot = (i === path.length - 1);
 
 			if (!entry) {
 				return null;
@@ -103,8 +118,16 @@ export class MemoryContentStore {
 				continue;
 			}
 
+			// Root node may have inline-diff (from empty string) instead of snapshot
+			if (isRoot && !resolved && entry.diff !== undefined) {
+				const ops = deserializeDiff(entry.diff);
+				content = applyDiff('', ops);
+				resolved = true;
+				continue;
+			}
+
 			if (!resolved) {
-				return null; // no snapshot found to start from
+				return null; // no snapshot or root diff to start from
 			}
 
 			if (entry.diff !== undefined) {

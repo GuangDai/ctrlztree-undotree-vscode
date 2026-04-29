@@ -222,4 +222,66 @@ suite('Projection', () => {
 		const consistencyErrors = p.diagnostics.filter(d => d.message.includes('Consistency'));
 		assert.strictEqual(consistencyErrors.length, 0);
 	});
+
+	test('merge event archives sources and creates result', () => {
+		const events: HistoryEvent[] = [
+			makeInit(0),
+			makeEdit(1, 0, 1),
+			makeEdit(2, 1, 2),
+			{
+				kind: 'merge', schemaVersion: 1, seq: 3, at: 3000, txId: 'tx-3', source: 'user',
+				sourceIds: [1, 2], resultId: 3, parentId: 0,
+				contentRef: { kind: 'inline-diff', bytes: 10 }, contentHash: 'hash-3',
+				archivedSourceIds: [], reason: 'squash'
+			}
+		];
+		const p = project('doc1', events);
+		assert.strictEqual(p.archivedNodes.has(1), true);
+		assert.strictEqual(p.archivedNodes.has(2), true);
+		assert.strictEqual(p.byId.has(3), true);
+		assert.strictEqual(p.parentOf.get(3), 0);
+	});
+
+	test('prune event archives and hard-deletes nodes', () => {
+		const events: HistoryEvent[] = [
+			makeInit(0),
+			makeEdit(1, 0, 1),
+			{
+				kind: 'prune', schemaVersion: 1, seq: 2, at: 2000, txId: 'tx-2', source: 'system',
+				strategy: 'preserve-head', archivedIds: [1], deletedIds: [], estimatedBytesFreed: 100, warnings: []
+			}
+		];
+		const p = project('doc1', events);
+		assert.strictEqual(p.archivedNodes.has(1), true);
+	});
+
+	test('summarize event stores summary on node', () => {
+		const events: HistoryEvent[] = [
+			makeInit(0),
+			makeEdit(1, 0, 1),
+			{
+				kind: 'summarize', schemaVersion: 1, seq: 2, at: 2000, txId: 'tx-2', source: 'ai-plan',
+				nodeId: 1, summary: 'Added feature X'
+			}
+		];
+		const p = project('doc1', events);
+		assert.strictEqual((p.byId.get(1) as any).summary, 'Added feature X');
+	});
+
+	test('reset event clears all state and creates new root', () => {
+		const events: HistoryEvent[] = [
+			makeInit(0),
+			makeEdit(1, 0, 1),
+			makeEdit(2, 1, 2),
+			{
+				kind: 'reset', schemaVersion: 1, seq: 3, at: 3000, txId: 'tx-3', source: 'user',
+				previousHeadId: 2, newRootId: 10, reason: 'fresh start'
+			}
+		];
+		const p = project('doc1', events);
+		assert.strictEqual(p.rootId, 10);
+		assert.strictEqual(p.headId, 10);
+		assert.strictEqual(p.byId.size, 1);
+		assert.strictEqual(p.parentOf.get(10), null);
+	});
 });

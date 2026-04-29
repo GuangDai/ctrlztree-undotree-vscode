@@ -1,5 +1,5 @@
 import { DocId, NodeId, EventSeq, ContentHash } from './ids';
-import { HistoryEvent, InitEvent, EditEvent, HeadMoveEvent, ArchiveEvent, DeleteEvent, ProtectEvent, RenameEvent } from './events';
+import { HistoryEvent, InitEvent, EditEvent, HeadMoveEvent, ArchiveEvent, DeleteEvent, ProtectEvent, RenameEvent, MergeEvent, PruneEvent, SummarizeEvent, ResetEvent } from './events';
 
 export interface NodeView {
 	nodeId: NodeId;
@@ -92,7 +92,18 @@ export function project(docId: DocId, events: HistoryEvent[]): Projection {
 			case 'delete':
 				handleDelete(proj, event);
 				break;
-			// merge, prune, summarize, reset are no-ops for now
+			case 'merge':
+				handleMerge(proj, event);
+				break;
+			case 'prune':
+				handlePrune(proj, event);
+				break;
+			case 'summarize':
+				handleSummarize(proj, event);
+				break;
+			case 'reset':
+				handleReset(proj, event);
+				break;
 		}
 	}
 
@@ -221,6 +232,77 @@ function handleDelete(proj: Projection, e: DeleteEvent): void {
 			proj.archivedNodes.add(id);
 		}
 	}
+}
+
+function handleMerge(proj: Projection, e: MergeEvent): void {
+	// Archive source nodes
+	for (const id of e.sourceIds) {
+		proj.archivedNodes.add(id);
+	}
+
+	// Create result node
+	const view: NodeView = {
+		nodeId: e.resultId,
+		contentHash: e.contentHash,
+		protected: false,
+		createdAt: e.at
+	};
+	proj.byId.set(e.resultId, view);
+	proj.parentOf.set(e.resultId, e.parentId);
+
+	const children = proj.childrenOf.get(e.parentId) ?? [];
+	children.push(e.resultId);
+	proj.childrenOf.set(e.parentId, children);
+
+	addToContentHashIndex(proj, e.contentHash, e.resultId);
+
+	// Archive additional source IDs
+	for (const id of e.archivedSourceIds) {
+		proj.archivedNodes.add(id);
+	}
+}
+
+function handlePrune(proj: Projection, e: PruneEvent): void {
+	for (const id of e.archivedIds) {
+		proj.archivedNodes.add(id);
+	}
+	for (const id of e.deletedIds) {
+		proj.deletedNodes.add(id);
+		proj.archivedNodes.delete(id);
+	}
+}
+
+function handleSummarize(proj: Projection, e: SummarizeEvent): void {
+	// Store summary metadata on node
+	const view = proj.byId.get(e.nodeId);
+	if (view) {
+		(view as any).summary = e.summary;
+	}
+}
+
+function handleReset(proj: Projection, e: ResetEvent): void {
+	// Clear all state and create new root
+	proj.byId.clear();
+	proj.childrenOf.clear();
+	proj.parentOf.clear();
+	proj.branchTips = [];
+	proj.namedNodes = [];
+	proj.protectedNodes.clear();
+	proj.archivedNodes.clear();
+	proj.deletedNodes.clear();
+	proj.contentHashIndex.clear();
+
+	const view: NodeView = {
+		nodeId: e.newRootId,
+		contentHash: '',
+		protected: false,
+		createdAt: e.at
+	};
+	proj.byId.set(e.newRootId, view);
+	proj.rootId = e.newRootId;
+	proj.headId = e.newRootId;
+	proj.parentOf.set(e.newRootId, null);
+	proj.childrenOf.set(e.newRootId, []);
 }
 
 function addToContentHashIndex(proj: Projection, hash: ContentHash, nodeId: NodeId): void {

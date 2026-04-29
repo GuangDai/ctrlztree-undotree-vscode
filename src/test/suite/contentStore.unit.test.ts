@@ -169,6 +169,26 @@ suite('MemoryContentStore', () => {
 		assert.strictEqual(store.getEntryCount(), 2);
 	});
 
+	test('resolve inline-diff root (no snapshot) works correctly', () => {
+		const store = new MemoryContentStore();
+		// Use a policy that does NOT snapshot on first node
+		const policy: SnapshotPolicy = { ...DEFAULT_SNAPSHOT_POLICY, snapshotEveryNodes: 999 };
+		store.appendEdit('', 'hello world', 0, policy);
+		const proj = makeSimpleProjection([0]);
+		const content = store.resolve(0, proj);
+		assert.strictEqual(content, 'hello world');
+	});
+
+	test('putRootSnapshot provides explicit snapshot', () => {
+		const store = new MemoryContentStore();
+		const ref = store.putSnapshot(0, 'root content');
+		assert.strictEqual(ref.kind, 'snapshot');
+		assert.strictEqual(store.hasSnapshot(0), true);
+
+		const proj = makeSimpleProjection([0]);
+		assert.strictEqual(store.resolve(0, proj), 'root content');
+	});
+
 	test('LRU eviction limits cache size', () => {
 		const store = new MemoryContentStore(2);
 		const policy: SnapshotPolicy = { ...DEFAULT_SNAPSHOT_POLICY, snapshotEveryNodes: 1 };

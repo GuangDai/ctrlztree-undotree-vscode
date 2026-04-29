@@ -267,8 +267,15 @@ export function createWebviewManager({
             currentHeadShortHash = currentHeadFullHash.substring(0, 8);
         }
 
+        let collisionCount = 0;
         nodes.forEach((node, fullHash) => {
             const shortHash = fullHash.substring(0, 8);
+            const existing = currentFullHashMap.get(shortHash);
+            if (existing && existing !== fullHash) {
+                collisionCount++;
+                outputChannel.appendLine(`CtrlZTree: Short hash collision detected: ${shortHash} -> [${existing.substring(0, 12)}..., ${fullHash.substring(0, 12)}...]`);
+                return; // skip this node to avoid mapping ambiguity
+            }
             currentFullHashMap.set(shortHash, fullHash);
 
             const isInternalRoot = fullHash === internalRootHash;
