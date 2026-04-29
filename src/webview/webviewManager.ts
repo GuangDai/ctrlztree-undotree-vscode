@@ -7,13 +7,14 @@ import { markEditorCleanIfAtInitialSnapshot } from '../utils/editorState';
 import { DiffContentRegistry } from '../ui/diffContentRegistry';
 import { isWebviewIncomingMessage } from './messageSchema';
 import { escapeHtml } from '../utils/htmlEscape';
+import { ApplyEditTokenSet } from '../concurrency/applyEditTokens';
 
 interface ManagerDeps {
     context: vscode.ExtensionContext;
     outputChannel: vscode.OutputChannel;
     state: ExtensionState;
     getOrCreateTree: (document: vscode.TextDocument) => CtrlZTree;
-    setIsApplyingEdit: (value: boolean) => void;
+    editTokens: ApplyEditTokenSet;
     diffContentRegistry: DiffContentRegistry;
 }
 
@@ -29,7 +30,7 @@ export function createWebviewManager({
     outputChannel,
     state,
     getOrCreateTree,
-    setIsApplyingEdit,
+    editTokens,
     diffContentRegistry
 }: ManagerDeps): WebviewManager {
     const { activeVisualizationPanels, panelToFullHashMap, historyTrees, lastChangeTime, lastCursorPosition, lastChangeType, pendingChanges, documentChangeTimeouts } = state;
@@ -631,7 +632,7 @@ export function createWebviewManager({
 
         const success = targetTree.setHead(fullHash);
         if (success) {
-            setIsApplyingEdit(true);
+            const token = editTokens.begin(docUriString, 'navigate');
             try {
                 const content = targetTree.getContent();
                 const cursorPosition = targetTree.getCursorPosition();
@@ -664,7 +665,7 @@ export function createWebviewManager({
             } catch (e: any) {
                 vscode.window.showErrorMessage(`CtrlZTree navigation error: ${e.message}`);
             } finally {
-                setIsApplyingEdit(false);
+                editTokens.end(token);
             }
 
             const navPanel = activeVisualizationPanels.get(docUriString);

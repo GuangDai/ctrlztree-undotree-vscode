@@ -3,6 +3,7 @@ import { CtrlZTree } from '../model/ctrlZTree';
 import { ExtensionState, ChangeType } from '../state/extensionState';
 import { WebviewManager } from '../webview/webviewManager';
 import { DIFF_SCHEME } from '../constants';
+import { ApplyEditTokenSet } from '../concurrency/applyEditTokens';
 
 interface ChangeTrackerDeps {
     context: vscode.ExtensionContext;
@@ -10,7 +11,7 @@ interface ChangeTrackerDeps {
     state: ExtensionState;
     getOrCreateTree: (document: vscode.TextDocument) => CtrlZTree;
     webviewManager: WebviewManager;
-    isApplyingEdit: () => boolean;
+    editTokens: ApplyEditTokenSet;
     setLastValidEditorUri: (uri: string | null) => void;
     actionTimeout: number;
     pauseThreshold: number;
@@ -25,7 +26,7 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         state,
         getOrCreateTree,
         webviewManager,
-        isApplyingEdit,
+        editTokens,
         setLastValidEditorUri,
         actionTimeout,
         pauseThreshold
@@ -34,8 +35,10 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
     const { documentChangeTimeouts, pendingChanges, lastChangeTime, lastCursorPosition, lastChangeType, processingDocuments, activeVisualizationPanels } = state;
 
     const subscription = vscode.workspace.onDidChangeTextDocument(async event => {
-        if (isApplyingEdit()) {
-            outputChannel.appendLine('CtrlZTree: onDidChangeTextDocument - skipping due to isApplyingEdit.');
+        const docUriString = event.document.uri.toString();
+
+        if (editTokens.isApplying(docUriString)) {
+            outputChannel.appendLine('CtrlZTree: onDidChangeTextDocument - skipping due to active edit token.');
             return;
         }
 
@@ -53,7 +56,6 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
             return;
         }
 
-        const docUriString = event.document.uri.toString();
         setLastValidEditorUri(docUriString);
 
         const currentText = event.document.getText();

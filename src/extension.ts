@@ -8,6 +8,7 @@ import { registerDocumentChangeTracking } from './services/changeTracker';
 import { markEditorCleanIfAtInitialSnapshot } from './utils/editorState';
 import { createDiffContentRegistry, DiffContentRegistry } from './ui/diffContentRegistry';
 import { clampConfig } from './config/configService';
+import { ApplyEditTokenSet, ApplyEditToken } from './concurrency/applyEditTokens';
 
 const extensionState = createExtensionState();
 
@@ -21,7 +22,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(outputChannel);
     outputChannel.appendLine('CtrlZTree: Extension activating...');
 
-    let isApplyingEdit = false;
+    const editTokens = new ApplyEditTokenSet();
 
     const diffContentRegistry = createDiffContentRegistry();
 
@@ -104,9 +105,7 @@ export function activate(context: vscode.ExtensionContext) {
         outputChannel,
         state: extensionState,
         getOrCreateTree,
-        setIsApplyingEdit: value => {
-            isApplyingEdit = value;
-        },
+        editTokens,
         diffContentRegistry
     });
 
@@ -116,7 +115,7 @@ export function activate(context: vscode.ExtensionContext) {
         state: extensionState,
         getOrCreateTree,
         webviewManager,
-        isApplyingEdit: () => isApplyingEdit,
+        editTokens,
         setLastValidEditorUri: uri => {
             extensionState.lastValidEditorUri = uri;
         },
@@ -197,11 +196,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         outputChannel.appendLine(`CtrlZTree: Undo from ${previousHead} to ${newHead}`);
-        await applyTreeStateToDocument(document, tree, () => {
-            isApplyingEdit = true;
-        }, () => {
-            isApplyingEdit = false;
-        });
+        await applyTreeStateToDocument(document, tree, 'undo', editTokens);
         await markEditorCleanIfAtInitialSnapshot(tree, document, { outputChannel });
         updatePanelForDocument(tree, document.uri.toString(), webviewManager);
     });
@@ -220,11 +215,7 @@ export function activate(context: vscode.ExtensionContext) {
         const redoResult = tree.y();
 
         if (typeof redoResult === 'string') {
-            await applyRedoBranch(tree, redoResult, document, webviewManager, () => {
-                isApplyingEdit = true;
-            }, () => {
-                isApplyingEdit = false;
-            });
+            await applyRedoBranch(tree, redoResult, document, webviewManager, editTokens);
             return;
         }
 
@@ -253,11 +244,7 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        await applyRedoBranch(tree, selected.hash, document, webviewManager, () => {
-            isApplyingEdit = true;
-        }, () => {
-            isApplyingEdit = false;
-        });
+        await applyRedoBranch(tree, selected.hash, document, webviewManager, editTokens);
     });
 
     async function resolveDocumentForVisualization(preferredDocument?: vscode.TextDocument): Promise<vscode.TextDocument | undefined> {
@@ -367,15 +354,15 @@ export function deactivate() {
 async function applyTreeStateToDocument(
     document: vscode.TextDocument,
     tree: CtrlZTree,
-    onStart: () => void,
-    onEnd: () => void
+    reason: ApplyEditToken['reason'],
+    editTokens: ApplyEditTokenSet
 ): Promise<void> {
-    onStart();
+    const docId = document.uri.toString();
+    const token = editTokens.begin(docId, reason);
     try {
         const content = tree.getContent();
         const cursorPosition = tree.getCursorPosition();
         const edit = new vscode.WorkspaceEdit();
-        // Create range for the entire document: from line 0 to the end of the last line
         const lastLineIndex = Math.max(0, document.lineCount - 1);
         const endChar = document.lineCount === 0 ? 0 : document.lineAt(lastLineIndex).text.length;
         const fullRange = new vscode.Range(0, 0, lastLineIndex, endChar);
@@ -398,7 +385,7 @@ async function applyTreeStateToDocument(
         const message = error instanceof Error ? error.message : String(error);
         vscode.window.showErrorMessage(`CtrlZTree: Failed to apply edit: ${message}`);
     } finally {
-        onEnd();
+        editTokens.end(token);
     }
 }
 
@@ -407,11 +394,10 @@ async function applyRedoBranch(
     targetHash: string,
     document: vscode.TextDocument,
     webviewManager: WebviewManager,
-    onStart: () => void,
-    onEnd: () => void
+    editTokens: ApplyEditTokenSet
 ): Promise<void> {
     tree.setHead(targetHash);
-    await applyTreeStateToDocument(document, tree, onStart, onEnd);
+    await applyTreeStateToDocument(document, tree, 'redo', editTokens);
     await markEditorCleanIfAtInitialSnapshot(tree, document);
     updatePanelForDocument(tree, document.uri.toString(), webviewManager);
 }
