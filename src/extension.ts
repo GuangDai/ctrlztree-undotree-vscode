@@ -9,6 +9,7 @@ import { markEditorCleanIfAtInitialSnapshot } from './utils/editorState';
 import { createDiffContentRegistry, DiffContentRegistry } from './ui/diffContentRegistry';
 import { clampConfig } from './config/configService';
 import { ApplyEditTokenSet, ApplyEditToken } from './concurrency/applyEditTokens';
+import { applyEditAndVerify, ApplyEditResult } from './utils/editorApply';
 
 const extensionState = createExtensionState();
 
@@ -356,18 +357,19 @@ async function applyTreeStateToDocument(
     tree: CtrlZTree,
     reason: ApplyEditToken['reason'],
     editTokens: ApplyEditTokenSet
-): Promise<void> {
+): Promise<ApplyEditResult> {
     const docId = document.uri.toString();
     const token = editTokens.begin(docId, reason);
     try {
         const content = tree.getContent();
         const cursorPosition = tree.getCursorPosition();
-        const edit = new vscode.WorkspaceEdit();
-        const lastLineIndex = Math.max(0, document.lineCount - 1);
-        const endChar = document.lineCount === 0 ? 0 : document.lineAt(lastLineIndex).text.length;
-        const fullRange = new vscode.Range(0, 0, lastLineIndex, endChar);
-        edit.replace(document.uri, fullRange, content);
-        await vscode.workspace.applyEdit(edit);
+
+        const result = await applyEditAndVerify(document, content);
+
+        if (!result.ok) {
+            vscode.window.showErrorMessage(`CtrlZTree: Failed to apply edit: ${result.error}`);
+            return result;
+        }
 
         if (cursorPosition) {
             const maxLine = document.lineCount - 1;
@@ -381,9 +383,12 @@ async function applyTreeStateToDocument(
                 editor.revealRange(new vscode.Range(adjustedPosition, adjustedPosition));
             }
         }
+
+        return result;
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         vscode.window.showErrorMessage(`CtrlZTree: Failed to apply edit: ${message}`);
+        return { ok: false, error: message };
     } finally {
         editTokens.end(token);
     }
@@ -395,11 +400,14 @@ async function applyRedoBranch(
     document: vscode.TextDocument,
     webviewManager: WebviewManager,
     editTokens: ApplyEditTokenSet
-): Promise<void> {
+): Promise<ApplyEditResult> {
     tree.setHead(targetHash);
-    await applyTreeStateToDocument(document, tree, 'redo', editTokens);
-    await markEditorCleanIfAtInitialSnapshot(tree, document);
-    updatePanelForDocument(tree, document.uri.toString(), webviewManager);
+    const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens);
+    if (result.ok) {
+        await markEditorCleanIfAtInitialSnapshot(tree, document);
+        updatePanelForDocument(tree, document.uri.toString(), webviewManager);
+    }
+    return result;
 }
 
 function updatePanelForDocument(

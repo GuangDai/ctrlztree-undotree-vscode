@@ -8,6 +8,7 @@ import { DiffContentRegistry } from '../ui/diffContentRegistry';
 import { isWebviewIncomingMessage } from './messageSchema';
 import { escapeHtml } from '../utils/htmlEscape';
 import { ApplyEditTokenSet } from '../concurrency/applyEditTokens';
+import { applyEditAndVerify } from '../utils/editorApply';
 
 interface ManagerDeps {
     context: vscode.ExtensionContext;
@@ -636,16 +637,13 @@ export function createWebviewManager({
             try {
                 const content = targetTree.getContent();
                 const cursorPosition = targetTree.getCursorPosition();
-                const edit = new vscode.WorkspaceEdit();
                 const activeDoc = targetEditor.document;
-                edit.replace(
-                    activeDoc.uri,
-                    new vscode.Range(0, 0, activeDoc.lineCount, 0),
-                    content
-                );
-                const applyResult = await vscode.workspace.applyEdit(edit);
-                if (!applyResult) {
-                    throw new Error('WorkspaceEdit was not applied successfully');
+
+                const result = await applyEditAndVerify(activeDoc, content);
+
+                if (!result.ok) {
+                    vscode.window.showErrorMessage(`CtrlZTree navigation failed: ${result.error}`);
+                    return;
                 }
 
                 if (cursorPosition) {
