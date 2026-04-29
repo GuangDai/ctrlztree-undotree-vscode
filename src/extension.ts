@@ -7,6 +7,7 @@ import { createWebviewManager, WebviewManager } from './webview/webviewManager';
 import { registerDocumentChangeTracking } from './services/changeTracker';
 import { markEditorCleanIfAtInitialSnapshot } from './utils/editorState';
 import { createDiffContentRegistry, DiffContentRegistry } from './ui/diffContentRegistry';
+import { clampConfig } from './config/configService';
 
 const extensionState = createExtensionState();
 
@@ -48,11 +49,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     const getConfig = () => {
         const config = vscode.workspace.getConfiguration('ctrlztree');
-        return {
-            enablePruning: config.get<boolean>('enablePruning', true),
-            maxHistoryNodesPerDocument: config.get<number>('maxHistoryNodesPerDocument', 1000),
-            maxTrackedDocuments: config.get<number>('maxTrackedDocuments', 100)
-        };
+        return clampConfig({
+            enablePruning: config.get<unknown>('enablePruning') as boolean | undefined,
+            maxHistoryNodesPerDocument: config.get<unknown>('maxHistoryNodesPerDocument') as number | undefined,
+            maxTrackedDocuments: config.get<unknown>('maxTrackedDocuments') as number | undefined,
+        }, (msg: string) => outputChannel.appendLine(msg));
     };
 
     const getOrCreateTree = (document: vscode.TextDocument): CtrlZTree => {
