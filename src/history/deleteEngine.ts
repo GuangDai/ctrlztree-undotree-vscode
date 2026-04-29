@@ -21,6 +21,10 @@ export function generateDeletePlan(
 	const warnings: string[] = [];
 	const { byId, parentOf, childrenOf, headId, rootId, protectedNodes, archivedNodes } = projection;
 
+	if (targetIds.length === 0) {
+		return { targetIds, mode, estimatedBytesFreed: 0, warnings: ['No target IDs provided'], valid: false, requiresConfirmation: false };
+	}
+
 	// Validate targets
 	for (const id of targetIds) {
 		if (!byId.has(id)) {

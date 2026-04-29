@@ -14,9 +14,19 @@ const REDACTION_PATTERNS: Array<{ name: string; pattern: RegExp; replacement: st
 	// PEM private key block
 	{ name: 'pem_private_key', pattern: /-----BEGIN[^-]*PRIVATE KEY-----[^-]*-----END[^-]*PRIVATE KEY-----/gs, replacement: '-----BEGIN PRIVATE KEY-----[REDACTED]-----END PRIVATE KEY-----' },
 
-	// API key header (X-Api-Key, X-API-Key, etc.)
-	{ name: 'api_key_header', pattern: /(?:X-Api-Key|X-API-Key|api-key|apikey):\s*[^\n\r]*/gi, replacement: '$1: [REDACTED]' },
+	// API key header (X-Api-Key, X-API-Key, api-key, apikey)
+	{ name: 'api_key_header', pattern: /(?:X-Api-Key|X-API-Key|api-key|apikey):\s*[^\n\r]*/gi, replacement: 'X-Api-Key: [REDACTED]' },
 ];
+
+const SENSITIVE_KEYS = new Set([
+	'apikey', 'api_key', 'api-key', 'apikey', 'apiKey',
+	'secret', 'client_secret', 'clientSecret',
+	'password', 'passwd', 'pwd',
+	'token', 'access_token', 'accessToken', 'refresh_token', 'refreshToken',
+	'authorization', 'auth',
+	'private_key', 'privateKey', 'secret_key', 'secretKey',
+	'credential', 'credentials',
+]);
 
 export interface RedactionResult {
 	redacted: string;
@@ -45,9 +55,15 @@ export function redactRequestData(body: Record<string, unknown>): Record<string,
 	const redacted: Record<string, unknown> = {};
 
 	for (const [key, value] of Object.entries(body)) {
+		const isSensitiveKey = SENSITIVE_KEYS.has(key.toLowerCase());
+
 		if (typeof value === 'string') {
-			const r = redactSensitiveData(value);
-			redacted[key] = r.redacted;
+			if (isSensitiveKey) {
+				redacted[key] = '[REDACTED]';
+			} else {
+				const r = redactSensitiveData(value);
+				redacted[key] = r.redacted;
+			}
 		} else if (Array.isArray(value)) {
 			redacted[key] = value.map(item => {
 				if (typeof item === 'string') {

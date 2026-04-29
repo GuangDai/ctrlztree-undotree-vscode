@@ -141,7 +141,7 @@ suite('PruningEngine', () => {
 		};
 
 		const policy: PruningPolicy = {
-			maxNodes: 100,
+			maxNodes: 1,
 			keepBranchTips: 0, // 0 additional branch tips beyond head path
 			archiveBeforeDelete: true,
 			recentWindowMs: 1
@@ -195,6 +195,7 @@ suite('PruningEngine', () => {
 
 		const policy: PruningPolicy = {
 			...DEFAULT_PRUNING_POLICY,
+			maxNodes: 1,
 			keepBranchTips: 0,
 			recentWindowMs: 1
 		};
@@ -208,6 +209,7 @@ suite('PruningEngine', () => {
 
 		const policy: PruningPolicy = {
 			...DEFAULT_PRUNING_POLICY,
+			maxNodes: 1,
 			keepBranchTips: 0,
 			recentWindowMs: 1
 		};

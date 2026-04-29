@@ -16,6 +16,10 @@ export function generateMergePlan(
 	const warnings: string[] = [];
 	const { byId, parentOf, childrenOf, headId, deletedNodes, rootId } = projection;
 
+	if (sourceIds.length === 0) {
+		return { sourceIds, targetParentId: 0, estimatedBytesFreed: 0, warnings: ['No source IDs provided'], valid: false };
+	}
+
 	// Validate all sourceIds exist and are not deleted
 	for (const id of sourceIds) {
 		if (!byId.has(id)) {

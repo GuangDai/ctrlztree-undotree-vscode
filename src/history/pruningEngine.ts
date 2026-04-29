@@ -30,6 +30,21 @@ export function generatePrunePlan(
 ): PrunePlan {
 	const { byId, headId, rootId, parentOf, childrenOf, branchTips, protectedNodes, archivedNodes, deletedNodes } = projection;
 
+	// Early return when not exceeding threshold
+	if (byId.size <= policy.maxNodes) {
+		const keep = Array.from(byId.keys())
+			.filter(id => !deletedNodes.has(id))
+			.sort((a, b) => a - b);
+		return {
+			keep,
+			archive: [],
+			delete: [],
+			estimatedBytesFreed: 0,
+			warnings: [],
+			requiresConfirmation: false
+		};
+	}
+
 	const keep = new Set<NodeId>();
 	const archive = new Set<NodeId>();
 	const hardDelete = new Set<NodeId>();
