@@ -1,4 +1,5 @@
 import * as path from 'path';
+import * as fs from 'fs';
 
 import { runTests } from 'vscode-test';
 
@@ -11,9 +12,26 @@ async function main() {
 		// The path to test runner
 		// Passed to --extensionTestsPath
 		const extensionTestsPath = path.resolve(__dirname, './suite/index');
+		const localVSCodeExecutablePath = path.resolve(
+			__dirname,
+			'../../.vscode-test/vscode-linux-x64-1.118.0/VSCode-linux-x64/code'
+		);
+		const vscodeExecutablePath = fs.existsSync(localVSCodeExecutablePath)
+			? localVSCodeExecutablePath
+			: undefined;
 
-		// Download VS Code, unzip it and run the integration test
-		await runTests({ extensionDevelopmentPath, extensionTestsPath });
+		// Download VS Code, unzip it and run the integration test.
+		// The sandbox flags keep the test runner usable in restricted CI/agent shells.
+		await runTests({
+			extensionDevelopmentPath,
+			extensionTestsPath,
+			vscodeExecutablePath,
+			version: '1.118.0',
+			launchArgs: ['--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+			extensionTestsEnv: {
+				['ELECTRON_DISABLE_SANDBOX']: '1'
+			}
+		});
 	} catch (err) {
 		console.error('Failed to run tests', err);
 		process.exit(1);
