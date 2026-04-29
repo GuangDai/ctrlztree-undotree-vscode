@@ -149,6 +149,23 @@ export class CtrlZTree {
         return null;
     }
 
+    peekUndo(): string | null {
+        if (!this.head) {
+            return null;
+        }
+
+        const currentNode = this.nodes.get(this.head)!;
+
+        if (this.head === this.initialSnapshotHash) {
+            return null;
+        }
+
+        if (currentNode.parent) {
+            return currentNode.parent;
+        }
+        return null;
+    }
+
     findLatestNonEmptyState(): string | null {
         if (!this.head) return null;
 
@@ -188,6 +205,13 @@ export class CtrlZTree {
             this.head = currentNode.children[0];
             return this.head;
         }
+        return currentNode.children;
+    }
+
+    peekRedoChildren(): string[] {
+        if (!this.head) return [];
+
+        const currentNode = this.nodes.get(this.head)!;
         return currentNode.children;
     }
 

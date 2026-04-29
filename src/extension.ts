@@ -179,7 +179,6 @@ export function activate(context: vscode.ExtensionContext) {
     const undoCommand = vscode.commands.registerCommand('ctrlztree.undo', async () => {
         const editor = vscode.window.activeTextEditor;
         
-        // Pass through to native undo if no editor or untrackable document
         if (!editor || !isTrackableDocument(editor.document)) {
             await vscode.commands.executeCommand('undo');
             return;
@@ -188,7 +187,7 @@ export function activate(context: vscode.ExtensionContext) {
         const document = editor.document;
         const tree = getOrCreateTree(document);
         const previousHead = tree.getHead();
-        const newHead = tree.z();
+        const newHead = tree.peekUndo();
 
         if (!newHead) {
             outputChannel.appendLine('CtrlZTree: No more undo history.');
@@ -196,10 +195,22 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        outputChannel.appendLine(`CtrlZTree: Undo from ${previousHead} to ${newHead}`);
-        await applyTreeStateToDocument(document, tree, 'undo', editTokens);
-        await markEditorCleanIfAtInitialSnapshot(tree, document, { outputChannel });
-        updatePanelForDocument(tree, document.uri.toString(), webviewManager);
+        outputChannel.appendLine(`CtrlZTree: Undo peek from ${previousHead} to ${newHead}`);
+
+        // Save current head, temporarily set to target for content resolution
+        const savedHead = tree.getHead();
+        tree.setHead(newHead);
+        const result = await applyTreeStateToDocument(document, tree, 'undo', editTokens);
+
+        if (result.ok) {
+            await markEditorCleanIfAtInitialSnapshot(tree, document, { outputChannel });
+            updatePanelForDocument(tree, document.uri.toString(), webviewManager);
+        } else {
+            // Rollback head on failure
+            if (savedHead) {
+                tree.setHead(savedHead);
+            }
+        }
     });
 
     const redoCommand = vscode.commands.registerCommand('ctrlztree.redo', async () => {
@@ -213,21 +224,24 @@ export function activate(context: vscode.ExtensionContext) {
 
         const document = editor.document;
         const tree = getOrCreateTree(document);
-        const redoResult = tree.y();
+        const children = tree.peekRedoChildren();
 
-        if (typeof redoResult === 'string') {
-            await applyRedoBranch(tree, redoResult, document, webviewManager, editTokens);
-            return;
-        }
-
-        if (redoResult.length === 0) {
+        if (children.length === 0) {
             outputChannel.appendLine('CtrlZTree: No more redo history.');
             vscode.window.showInformationMessage('CtrlZTree: No more redo history.');
             return;
         }
 
+        if (children.length === 1) {
+            const result = await applyRedoBranch(tree, children[0], document, webviewManager, editTokens);
+            if (!result.ok) {
+                outputChannel.appendLine(`CtrlZTree: Redo apply failed: ${result.error}`);
+            }
+            return;
+        }
+
         const currentContent = tree.getContent();
-        const items = redoResult.map(hash => {
+        const items = children.map(hash => {
             const branchContent = tree.getContent(hash);
             const diffPreview = generateDiffSummary(currentContent, branchContent);
             return {
@@ -245,7 +259,10 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        await applyRedoBranch(tree, selected.hash, document, webviewManager, editTokens);
+        const result = await applyRedoBranch(tree, selected.hash, document, webviewManager, editTokens);
+        if (!result.ok) {
+            outputChannel.appendLine(`CtrlZTree: Redo apply failed: ${result.error}`);
+        }
     });
 
     async function resolveDocumentForVisualization(preferredDocument?: vscode.TextDocument): Promise<vscode.TextDocument | undefined> {
