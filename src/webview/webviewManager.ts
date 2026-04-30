@@ -119,7 +119,6 @@ export function createWebviewManager({
         }
         prev.edgeKeys = newEdgeKeys;
         prev.headId = headId;
-        prev.initialized = true;
 
         return { addedNodes, removedNodes, updatedNodes, addedEdges, removedEdges };
     }

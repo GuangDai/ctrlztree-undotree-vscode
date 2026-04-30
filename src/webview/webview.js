@@ -321,7 +321,7 @@
                     // Incremental graph update
                     if (Array.isArray(message.removed) && message.removed.length > 0) {
                         nodes.remove(message.removed);
-                        edges.remove(message.removed.map(function (id) { return { id: id }; }));
+                        // Edge removal for graphPatch uses message.removedEdges, not node IDs
                     }
                     if (Array.isArray(message.added) && message.added.length > 0) {
                         nodes.add(message.added);

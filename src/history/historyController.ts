@@ -407,18 +407,25 @@ export class HistoryController {
 			return { ok: true };
 		}
 		const fingerprint = PersistenceService.computeFingerprint(this.docId);
-		// Collect ContentStore snapshots for persistence
+		// Collect ContentStore snapshots for persistence.
+		// Only collect snapshots for nodes near head (last 64 entries) to avoid O(n) resolve.
 		let contentEntries: Array<{ nodeId: number; content: string }> | undefined;
 		if (this.contentStore) {
 			const proj = this.projection;
 			contentEntries = [];
-			for (const [nodeId] of proj.byId) {
-				if (this.contentStore.hasSnapshot(nodeId)) {
-					const content = this.contentStore.resolve(nodeId, proj);
+			// Walk from head upward, collecting snapshots for the head-path chain
+			let cursor: number | null = proj.headId;
+			let depth = 0;
+			const maxDepth = 64;
+			while (cursor !== null && depth < maxDepth) {
+				if (this.contentStore.hasSnapshot(cursor)) {
+					const content = this.contentStore.resolve(cursor, proj);
 					if (content !== null) {
-						contentEntries.push({ nodeId, content });
+						contentEntries.push({ nodeId: cursor, content });
 					}
 				}
+				cursor = proj.parentOf.get(cursor) ?? null;
+				depth++;
 			}
 		}
 		const result = await this.persistenceService.saveDocument(
