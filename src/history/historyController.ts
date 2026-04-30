@@ -255,6 +255,28 @@ export class HistoryController {
 		return this.events;
 	}
 
+	recordHeadMove(fromHash: string, toHash: string, reason: 'undo' | 'redo' | 'checkout'): void {
+		if (!this.hashToNodeId.has(fromHash)) {
+			this.mapHash(fromHash, this.nextNodeId++);
+		}
+		if (!this.hashToNodeId.has(toHash)) {
+			this.mapHash(toHash, this.nextNodeId++);
+		}
+		const headMoveEvent: HeadMoveEvent = {
+			kind: 'headMove',
+			schemaVersion: 1,
+			seq: this.nextSeq++,
+			at: Date.now(),
+			txId: this.genTxId(),
+			source: 'user',
+			from: this.hashToNodeId.get(fromHash)!,
+			to: this.hashToNodeId.get(toHash)!,
+			reason,
+		};
+		this.events.push(headMoveEvent);
+		this.projection = project(this.docId, this.events);
+	}
+
 	close(): void {
 		this.queue.clear(this.docId);
 	}

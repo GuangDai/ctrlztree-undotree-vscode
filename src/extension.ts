@@ -263,6 +263,10 @@ export function activate(context: vscode.ExtensionContext) {
             if (!tree.setHead(item.nodeHash)) {return;}
 
             const result = await applyTreeStateToDocument(document, tree, 'checkout', editTokens);
+            if (result.ok) {
+                const controller = getOrCreateController(document);
+                controller.recordHeadMove(savedHead ?? '', item.nodeHash, 'checkout');
+            }
             if (!result.ok && savedHead) {
                 tree.setHead(savedHead);
             }
@@ -324,6 +328,8 @@ export function activate(context: vscode.ExtensionContext) {
         if (result.ok) {
             await markEditorCleanIfAtInitialSnapshot(tree, document, { outputChannel });
             updatePanelForDocument(tree, document.uri.toString(), webviewManager);
+            const controller = getOrCreateController(document);
+            controller.recordHeadMove(savedHead ?? '', tree.getHead()!, 'undo');
         } else {
             // Rollback head on failure
             if (savedHead) {
@@ -352,7 +358,12 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         if (children.length === 1) {
+            const savedHead = tree.getHead();
             const result = await applyRedoBranch(tree, children[0], document, webviewManager, editTokens);
+            if (result.ok) {
+                const controller = getOrCreateController(document);
+                controller.recordHeadMove(savedHead ?? '', children[0], 'redo');
+            }
             if (!result.ok) {
                 outputChannel.appendLine(`CtrlZTree: Redo apply failed: ${result.error}`);
             }
@@ -378,7 +389,12 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
+        const savedHead = tree.getHead();
         const result = await applyRedoBranch(tree, selected.hash, document, webviewManager, editTokens);
+        if (result.ok) {
+            const controller = getOrCreateController(document);
+            controller.recordHeadMove(savedHead ?? '', selected.hash, 'redo');
+        }
         if (!result.ok) {
             outputChannel.appendLine(`CtrlZTree: Redo apply failed: ${result.error}`);
         }
