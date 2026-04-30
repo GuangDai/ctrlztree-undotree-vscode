@@ -9,6 +9,7 @@ import { isWebviewIncomingMessage } from './messageSchema';
 import { escapeHtml } from '../utils/htmlEscape';
 import { ApplyEditTokenSet } from '../concurrency/applyEditTokens';
 import { applyEditAndVerify } from '../utils/editorApply';
+import { Logger, LogLevel } from '../utils/logger';
 
 interface ManagerDeps {
     context: vscode.ExtensionContext;
@@ -34,6 +35,10 @@ export function createWebviewManager({
     editTokens,
     diffContentRegistry
 }: ManagerDeps): WebviewManager {
+    const log = new Logger(outputChannel);
+    const logLevel = vscode.workspace.getConfiguration('ctrlztree').get<string>('logging.level', 'info') as LogLevel;
+    log.setLevel(logLevel);
+
     const { activeVisualizationPanels, panelToFullHashMap, historyTrees, lastChangeTime, lastCursorPosition, lastChangeType, pendingChanges, documentChangeTimeouts } = state;
     const panelDocumentContexts = new Map<vscode.WebviewPanel, { docUriString: string; document: vscode.TextDocument }>();
 
@@ -154,7 +159,7 @@ export function createWebviewManager({
             }
             return false;
         } catch (error) {
-            outputChannel.appendLine(`CtrlZTree: Error posting message to webview: ${error}`);
+            log.error(`CtrlZTree: post message error to webview: ${error}`);
             return false;
         }
     }
@@ -328,7 +333,7 @@ export function createWebviewManager({
 
     function postUpdatesToWebview(panel: vscode.WebviewPanel, tree: CtrlZTree, documentUriString: string) {
         if (!isPanelValid(panel)) {
-            outputChannel.appendLine(`CtrlZTree: Skipping update to disposed webview for ${documentUriString}`);
+            log.warn(`CtrlZTree: disposed panel webview for ${documentUriString}`);
             return;
         }
 
@@ -351,7 +356,7 @@ export function createWebviewManager({
             const existing = currentFullHashMap.get(shortHash);
             if (existing && existing !== fullHash) {
                 collisionCount++;
-                outputChannel.appendLine(`CtrlZTree: Short hash collision detected: ${shortHash} -> [${existing.substring(0, 12)}..., ${fullHash.substring(0, 12)}...]`);
+                log.warn(`CtrlZTree: hash collision detected: ${shortHash} -> [${existing.substring(0, 12)}..., ${fullHash.substring(0, 12)}...]`);
                 return; // skip this node to avoid mapping ambiguity
             }
             currentFullHashMap.set(shortHash, fullHash);
@@ -393,7 +398,7 @@ export function createWebviewManager({
         const gs = getOrCreateGraphState(panel);
         const diff = computeGraphDiff(gs, nodesArrayForVis, edgesArrayForVis, currentHeadShortHash);
 		if (gs.initialized && (diff.addedNodes.length > 0 || diff.removedNodes.length > 0 || diff.addedEdges.length > 0 || diff.removedEdges.length > 0)) {
-            outputChannel.appendLine(
+            log.info(
                 `CtrlZTree: Graph diff [+${diff.addedNodes.length} -${diff.removedNodes.length} ~${diff.updatedNodes.length}] ` +
                 `edges [+${diff.addedEdges.length} -${diff.removedEdges.length}]`
             );
@@ -408,7 +413,7 @@ export function createWebviewManager({
 
 		if (success) {
 		} else {
-            outputChannel.appendLine(`CtrlZTree: Failed to post updates to webview for ${documentUriString} - panel may be disposed`);
+            log.info(`CtrlZTree: Failed to post updates to webview for ${documentUriString} - panel may be disposed`);
         }
     }
 
@@ -451,7 +456,7 @@ export function createWebviewManager({
                 .replace(/%TITLE%/g, escapeHtml(fileName));
             return filled;
         } catch (e: any) {
-            outputChannel.appendLine(`CtrlZTree: Failed to load webview template: ${e.message}`);
+            log.info(`CtrlZTree: Failed to load webview template: ${e.message}`);
             return `<!doctype html><html><body><pre>Failed to load webview template: ${escapeHtml(e.message || 'Unknown error')}</pre></body></html>`;
         }
     }
@@ -480,7 +485,7 @@ export function createWebviewManager({
                     const fallbackUri = vscode.Uri.parse(state.lastValidEditorUri);
                     targetDocument = await vscode.workspace.openTextDocument(fallbackUri);
                 } catch (err: any) {
-                    outputChannel.appendLine(`CtrlZTree: Failed to reopen last edited document ${state.lastValidEditorUri}: ${err.message}`);
+                    log.info(`CtrlZTree: Failed to reopen last edited document ${state.lastValidEditorUri}: ${err.message}`);
                 }
             }
         }
@@ -553,12 +558,12 @@ export function createWebviewManager({
         panel.webview.onDidReceiveMessage(
             async message => {
                 if (!isWebviewIncomingMessage(message)) {
-                    outputChannel.appendLine('CtrlZTree: Ignored invalid/unknown webview message command.');
+                    log.warn('CtrlZTree: invalid webview message/unknown webview message command.');
                     return;
                 }
                 const panelContext = getPanelDocumentContext(panel);
                 if (!panelContext) {
-                    outputChannel.appendLine('CtrlZTree: No panel context available for message handling.');
+                    log.info('CtrlZTree: No panel context available for message handling.');
                     return;
                 }
                 const { docUriString, document: contextDocument } = panelContext;
@@ -581,7 +586,7 @@ export function createWebviewManager({
                         await handleTreeReset(docUriString, panel);
                         return;
                     case 'webviewError':
-                        outputChannel.appendLine(`CtrlZTree: Webview CRITICAL ERROR: ${message.error.message} Stack: ${message.error.stack}`);
+                        log.error(`CtrlZTree: CRITICAL webview: ${message.error.message} Stack: ${message.error.stack}`);
                         vscode.window.showErrorMessage(`CtrlZTree Webview Critical Error: ${message.error.message}. Check CtrlZTree output channel.`);
                         return;
                 }
@@ -662,7 +667,7 @@ export function createWebviewManager({
                 state.lastOpenedDiffEditor = openedDiffEditor;
             }
         } catch (e: any) {
-            outputChannel.appendLine(`CtrlZTree: Error opening diff: ${e.message} Stack: ${e.stack}`);
+            log.error(`CtrlZTree: open diff error: ${e.message} Stack: ${e.stack}`);
             vscode.window.showErrorMessage(`CtrlZTree: Could not open diff: ${e.message}`);
         }
     }
@@ -813,7 +818,7 @@ export function createWebviewManager({
                 return;
             }
 
-            outputChannel.appendLine(`CtrlZTree: User confirmed reset for ${docUriString} (${nodeCount} nodes discarded)`);
+            log.info(`CtrlZTree: User confirmed reset for ${docUriString} (${nodeCount} nodes discarded)`);
             historyTrees.delete(docUriString);
             const newTree = new CtrlZTree(targetDocument.getText());
             historyTrees.set(docUriString, newTree);
@@ -852,7 +857,7 @@ export function createWebviewManager({
                     const tree = historyTrees.get(state.lastValidEditorUri);
                     const panel = activeVisualizationPanels.get(state.lastValidEditorUri);
                     if (tree && panel && isPanelValid(panel)) {
-                        outputChannel.appendLine(`CtrlZTree: Showing tree for last valid editor: ${state.lastValidEditorUri}`);
+                        log.info(`CtrlZTree: Showing tree for last valid editor: ${state.lastValidEditorUri}`);
                         postUpdatesToWebview(panel, tree, state.lastValidEditorUri);
                     }
                 }
@@ -861,7 +866,7 @@ export function createWebviewManager({
         }
 
         const docUriString = editor.document.uri.toString();
-        outputChannel.appendLine(`CtrlZTree: Active editor changed to ${docUriString}`);
+        log.info(`CtrlZTree: Active editor changed to ${docUriString}`);
         state.lastValidEditorUri = docUriString;
 
         const existingPanel = activeVisualizationPanels.get(docUriString);

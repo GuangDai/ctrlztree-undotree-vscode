@@ -5,6 +5,7 @@ import { WebviewManager } from '../webview/webviewManager';
 import { DIFF_SCHEME } from '../constants';
 import { ApplyEditTokenSet } from '../concurrency/applyEditTokens';
 import { HistoryController } from '../history/historyController';
+import { Logger } from '../utils/logger';
 
 interface ChangeTrackerDeps {
     context: vscode.ExtensionContext;
@@ -25,7 +26,6 @@ const WHITESPACE_FLUSH_DELAY = 500; // 500 ms
 export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.Disposable {
     const {
         context,
-        outputChannel,
         state,
         getOrCreateTree,
         webviewManager,
@@ -35,13 +35,17 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         pauseThreshold
     } = deps;
 
+    const log = new Logger(deps.outputChannel);
+    const logLevel = vscode.workspace.getConfiguration('ctrlztree').get<string>('logging.level', 'info') as any;
+    log.setLevel(logLevel || 'info');
+
     const { documentChangeTimeouts, pendingChanges, lastChangeTime, lastCursorPosition, lastChangeType, processingDocuments, activeVisualizationPanels } = state;
 
     const subscription = vscode.workspace.onDidChangeTextDocument(async event => {
         const docUriString = event.document.uri.toString();
 
         if (editTokens.isApplying(docUriString)) {
-            outputChannel.appendLine('CtrlZTree: onDidChangeTextDocument - skipping due to active edit token.');
+            log.debug('CtrlZTree: skipping change due to active edit token.');
             return;
         }
 
@@ -89,7 +93,7 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
 
         if (separatorTrigger === 'newline') {
             processDocumentChange(event.document, currentText);
-            outputChannel.appendLine(`CtrlZTree: Document change flushed immediately due to newline separator for ${docUriString}.`);
+            log.debug(`CtrlZTree: newline flush due to newline separator for ${docUriString}.`);
             return;
         }
 
@@ -105,11 +109,11 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         }, delay);
 
         documentChangeTimeouts.set(docUriString, newTimeout);
-        outputChannel.appendLine(`CtrlZTree: Document change scheduled for ${docUriString} (group: ${shouldGroup}, separatorTrigger: ${separatorTrigger ?? 'none'}, delay: ${delay}ms, type: ${changeType}, cursor: ${currentPosition?.line}:${currentPosition?.character})`);
+        log.debug(`CtrlZTree: change scheduled for ${docUriString} (group: ${shouldGroup}, separatorTrigger: ${separatorTrigger ?? 'none'}, delay: ${delay}ms, type: ${changeType}, cursor: ${currentPosition?.line}:${currentPosition?.character})`);
     });
 
     context.subscriptions.push(subscription);
-    outputChannel.appendLine('CtrlZTree: onDidChangeTextDocument subscribed.');
+    log.info('CtrlZTree: onDidChangeTextDocument subscribed.');
 
     return subscription;
 
@@ -117,7 +121,7 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         const docUriString = document.uri.toString();
 
         if (processingDocuments.has(docUriString)) {
-            outputChannel.appendLine(`CtrlZTree: processDocumentChange - rescheduling ${docUriString} due to ongoing processing.`);
+            log.debug(`CtrlZTree: rescheduling ${docUriString} due to ongoing processing.`);
             pendingChanges.set(docUriString, content);
             const timeout = setTimeout(() => {
                 const pendingContent = pendingChanges.get(docUriString);
@@ -146,15 +150,15 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
                 if (controller) {
                     controller.commit(content, cursorPosition)
                         .then(() => {
-                            outputChannel.appendLine('CtrlZTree: Document changed and processed via HistoryController (debounced).');
+                            log.info('CtrlZTree: Document changed and processed via HistoryController (debounced).');
                         })
                         .catch((err: Error) => {
-                            outputChannel.appendLine(`CtrlZTree: HistoryController commit error: ${err.message}`);
+                            log.error(`CtrlZTree: HistoryController commit error: ${err.message}`);
                         });
                 } else {
                     tree.set(content, cursorPosition);
                 }
-                outputChannel.appendLine('CtrlZTree: Document changed and processed (debounced).');
+                log.debug('CtrlZTree: change processed.');
 
                 if (deps.onDocumentCommitted) {
                     deps.onDocumentCommitted(docUriString, tree);
@@ -163,15 +167,15 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
                 const panel = activeVisualizationPanels.get(docUriString);
                 if (panel) {
                     webviewManager.postUpdatesToWebview(panel, tree, docUriString);
-                    outputChannel.appendLine(`CtrlZTree: Panel for ${docUriString} updated after file change.`);
+                    log.debug(`CtrlZTree: panel updated ${docUriString} updated after file change.`);
                 } else {
-                    outputChannel.appendLine(`CtrlZTree: No panel open for ${docUriString} on file change.`);
+                    log.debug(`CtrlZTree: no panel for ${docUriString} on file change.`);
                 }
             } else {
-                outputChannel.appendLine('CtrlZTree: Document content matches tree content - skipping update.');
+                log.debug('CtrlZTree: content matches tree - skipping update.');
             }
         } catch (e: any) {
-            outputChannel.appendLine(`CtrlZTree: Error in processDocumentChange: ${e.message} Stack: ${e.stack}`);
+            log.error(`CtrlZTree: processDocumentChange error: ${e.message} Stack: ${e.stack}`);
             vscode.window.showErrorMessage(`CtrlZTree processDocumentChange error: ${e.message}`);
         } finally {
             processingDocuments.delete(docUriString);

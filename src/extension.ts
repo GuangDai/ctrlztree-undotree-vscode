@@ -89,7 +89,7 @@ export function activate(context: vscode.ExtensionContext) {
             enablePruning: config.get<unknown>('enablePruning') as boolean | undefined,
             maxHistoryNodesPerDocument: config.get<unknown>('maxHistoryNodesPerDocument') as number | undefined,
             maxTrackedDocuments: config.get<unknown>('maxTrackedDocuments') as number | undefined,
-        }, (msg: string) => outputChannel.appendLine(msg));
+        }, (msg: string) => log.warn(msg));
     };
 
     const getOrCreateTree = (document: vscode.TextDocument): CtrlZTree => {
@@ -98,7 +98,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (!tree) {
             tree = new CtrlZTree(document.getText());
             extensionState.historyTrees.set(key, tree);
-            outputChannel.appendLine(`CtrlZTree: Created new tree for ${key}`);
+            log.debug(`CtrlZTree: Created new tree for ${key}`);
         }
 
         const config = getConfig();
@@ -107,7 +107,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Hard-deleting nodes from the legacy tree risks losing redo branches.
         // Temporarily disabled until W4 PruningEngine is wired into runtime.
         if (config.enablePruning && tree.getNodeCount() > config.maxHistoryNodesPerDocument) {
-            outputChannel.appendLine(`CtrlZTree: History for ${key} exceeds maxNodes (${tree.getNodeCount()} > ${config.maxHistoryNodesPerDocument}). Pruning not yet wired - nodes retained.`);
+            log.warn(`CtrlZTree: History for ${key} exceeds maxNodes (${tree.getNodeCount()} > ${config.maxHistoryNodesPerDocument}). Pruning not yet wired - nodes retained.`);
         }
 
         // Clean up old histories if too many documents are tracked (only if pruning enabled)
@@ -129,7 +129,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             for (const [uriToDelete] of entriesToDelete) {
                 extensionState.historyTrees.delete(uriToDelete);
-                outputChannel.appendLine(`CtrlZTree: Removed history for old document ${uriToDelete}`);
+                log.debug(`CtrlZTree: Removed history for old document ${uriToDelete}`);
             }
         }
 
@@ -145,7 +145,7 @@ export function activate(context: vscode.ExtensionContext) {
             const tree = getOrCreateTree(document);
             controller = new HistoryController({ docId: key, tree, queue: documentQueue, persistenceService });
             extensionState.historyControllers.set(key, controller);
-            outputChannel.appendLine(`CtrlZTree: Created HistoryController for ${key}`);
+            log.debug(`CtrlZTree: Created HistoryController for ${key}`);
         }
         return controller;
     };
@@ -185,7 +185,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(changeTracker);
 
     const themeChangeSubscription = vscode.window.onDidChangeActiveColorTheme(() => {
-        outputChannel.appendLine('CtrlZTree: Color theme changed, broadcasting refresh.');
+        log.debug('CtrlZTree: Color theme changed.');
         webviewManager.broadcastThemeRefresh();
     });
 
@@ -197,7 +197,7 @@ export function activate(context: vscode.ExtensionContext) {
         const key = document.uri.toString();
         const tree = extensionState.historyTrees.get(key);
         if (tree) {
-            outputChannel.appendLine(`CtrlZTree: Cleaning up history for closed document ${key} (${tree.getNodeCount()} nodes)`);
+            log.debug(`CtrlZTree: Cleaning up history for closed document ${key} (${tree.getNodeCount()} nodes)`);
             extensionState.historyTrees.delete(key);
         }
 
@@ -205,7 +205,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (controller) {
             await controller.close();
             extensionState.historyControllers.delete(key);
-            outputChannel.appendLine(`CtrlZTree: Closed HistoryController for ${key}`);
+            log.debug(`CtrlZTree: Closed HistoryController for ${key}`);
         }
 
         // Also clean up related state
@@ -234,10 +234,10 @@ export function activate(context: vscode.ExtensionContext) {
             if (controller.getNeedsPersist()) {
                 controller.flushToDisk().then(result => {
                     if (!result.ok) {
-                        outputChannel.appendLine(`CtrlZTree: Persist error for ${key}: ${result.error}`);
+                        log.error(`CtrlZTree: Persist error for ${key}: ${result.error}`);
                     }
                 }).catch(err => {
-                    outputChannel.appendLine(`CtrlZTree: Persist error for ${key}: ${err?.message || 'Unknown'}`);
+                    log.error(`CtrlZTree: Persist error for ${key}: ${err?.message || 'Unknown'}`);
                 });
             }
         }
@@ -415,7 +415,7 @@ export function activate(context: vscode.ExtensionContext) {
         );
 
         if (choice === 'Merge') {
-            outputChannel.appendLine(`CtrlZTree: Merge confirmed for ${linearChain.length} nodes (linear chain on head path). Merge execution deferred to W4 executor.`);
+            log.info(`CtrlZTree: Merge confirmed for ${linearChain.length} nodes (linear chain on head path). Merge execution deferred to W4 executor.`);
             vscode.window.showInformationMessage(`CtrlZTree: Merge plan created. Execution will be available in a future update.`);
         }
     });
@@ -433,12 +433,12 @@ export function activate(context: vscode.ExtensionContext) {
         const newHead = tree.peekUndo();
 
         if (!newHead) {
-            outputChannel.appendLine('CtrlZTree: No more undo history.');
+            log.debug('CtrlZTree: No more undo history.');
             vscode.window.showInformationMessage('CtrlZTree: No more undo history.');
             return;
         }
 
-        outputChannel.appendLine(`CtrlZTree: Undo peek to ${newHead}`);
+        log.debug(`CtrlZTree: Undo peek to ${newHead}`);
 
         // Save current head, temporarily set to target for content resolution
         const savedHead = tree.getHead();
@@ -472,7 +472,7 @@ export function activate(context: vscode.ExtensionContext) {
         const children = tree.peekRedoChildren();
 
         if (children.length === 0) {
-            outputChannel.appendLine('CtrlZTree: No more redo history.');
+            log.debug('CtrlZTree: No more redo history.');
             vscode.window.showInformationMessage('CtrlZTree: No more redo history.');
             return;
         }
@@ -485,7 +485,7 @@ export function activate(context: vscode.ExtensionContext) {
                 controller.recordHeadMove(savedHead ?? '', children[0], 'redo');
             }
             if (!result.ok) {
-                outputChannel.appendLine(`CtrlZTree: Redo apply failed: ${result.error}`);
+                log.error(`CtrlZTree: Redo apply failed: ${result.error}`);
             }
             return;
         }
@@ -516,7 +516,7 @@ export function activate(context: vscode.ExtensionContext) {
             controller.recordHeadMove(savedHead ?? '', selected.hash, 'redo');
         }
         if (!result.ok) {
-            outputChannel.appendLine(`CtrlZTree: Redo apply failed: ${result.error}`);
+            log.error(`CtrlZTree: Redo apply failed: ${result.error}`);
         }
     });
 
@@ -548,7 +548,7 @@ export function activate(context: vscode.ExtensionContext) {
                 }
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                outputChannel.appendLine(`CtrlZTree: Could not reopen last edited document ${extensionState.lastValidEditorUri}: ${message}`);
+                log.warn(`CtrlZTree: Could not reopen last edited document ${extensionState.lastValidEditorUri}: ${message}`);
             }
         }
 
@@ -594,7 +594,7 @@ export function activate(context: vscode.ExtensionContext) {
                 preferredDocument = await vscode.workspace.openTextDocument(uri);
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                outputChannel.appendLine(`CtrlZTree: Failed to open provided document for visualize command: ${message}`);
+                log.error(`CtrlZTree: Failed to open provided document for visualize command: ${message}`);
             }
         }
 
@@ -631,7 +631,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const storageKey = `ctrlztree.ai.key.${provider}`;
         await secretStore.set(storageKey, key.trim());
-        outputChannel.appendLine(`CtrlZTree: API key saved for provider ${provider}`);
+        log.info(`CtrlZTree: API key saved for provider ${provider}`);
         vscode.window.showInformationMessage(`CtrlZTree: API key saved for ${provider}`);
     });
 
@@ -651,7 +651,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const storageKey = `ctrlztree.ai.key.${provider}`;
         await secretStore.delete(storageKey);
-        outputChannel.appendLine(`CtrlZTree: API key cleared for provider ${provider}`);
+        log.info(`CtrlZTree: API key cleared for provider ${provider}`);
         vscode.window.showInformationMessage(`CtrlZTree: API key cleared for ${provider}`);
     });
 
@@ -674,20 +674,20 @@ export function activate(context: vscode.ExtensionContext) {
         const result = await aiService.testConnection(aiConfig);
 
         if (result.ok) {
-            outputChannel.appendLine(`CtrlZTree: Test connection to ${aiConfig.provider} successful`);
+            log.info(`CtrlZTree: Test connection to ${aiConfig.provider} successful`);
             vscode.window.showInformationMessage(`CtrlZTree: Connection to ${aiConfig.provider} (${aiConfig.model}) successful ✓`);
         } else if (result.statusCode === 401 || result.statusCode === 403) {
-            outputChannel.appendLine(`CtrlZTree: Test connection auth failed (${result.statusCode})`);
+            log.info(`CtrlZTree: Test connection auth failed (${result.statusCode})`);
             vscode.window.showErrorMessage(`CtrlZTree: Authentication failed (${result.statusCode}). Check your API key.`);
         } else {
-            outputChannel.appendLine(`CtrlZTree: Test connection failed: ${result.error}`);
+            log.warn(`CtrlZTree: Test connection failed: ${result.error}`);
             vscode.window.showWarningMessage(`CtrlZTree: Connection test failed: ${result.error}`);
         }
     });
 
     context.subscriptions.push(undoCommand, redoCommand, visualizeCommand, mergeCommand, setApiKeyCommand, clearApiKeyCommand, testConnectionCommand);
 
-    outputChannel.appendLine('CtrlZTree: Extension activation completed successfully.');
+    log.info('CtrlZTree: Extension activation completed successfully.');
 }
 
 export function deactivate() {
