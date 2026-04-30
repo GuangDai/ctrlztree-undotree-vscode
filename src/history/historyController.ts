@@ -117,6 +117,7 @@ export class HistoryController {
 
 	async commit(content: string, cursor?: vscode.Position): Promise<CommitResult> {
 		return this.queue.enqueue(this.docId, 'commit', async (token) => {
+			if (token.cancelled) { throw new Error(`Commit cancelled: ${token.cancelReason}`); }
 			const oldContent = this.tree.getContent();
 			const cursorPos: Cursor | undefined = cursor ? { line: cursor.line, character: cursor.character } : undefined;
 			const newHash = this.tree.set(content, cursor);
@@ -179,7 +180,8 @@ export class HistoryController {
 	}
 
 	async undo(): Promise<NavigateResult> {
-		return this.queue.enqueue(this.docId, 'undo', async (_token) => {
+		return this.queue.enqueue(this.docId, 'undo', async (token) => {
+			if (token.cancelled) { throw new Error(`Undo cancelled: ${token.cancelReason}`); }
 			const proj = this.projection;
 			const currentHead = proj.headId;
 			const parentId = proj.parentOf.get(currentHead);
@@ -221,7 +223,8 @@ export class HistoryController {
 	}
 
 	async redo(childHash?: string): Promise<NavigateResult> {
-		return this.queue.enqueue(this.docId, 'redo', async (_token) => {
+		return this.queue.enqueue(this.docId, 'redo', async (token) => {
+			if (token.cancelled) { throw new Error(`Redo cancelled: ${token.cancelReason}`); }
 			const proj = this.projection;
 			const currentHead = proj.headId;
 			const children = proj.childrenOf.get(currentHead) ?? [];
@@ -267,7 +270,8 @@ export class HistoryController {
 	}
 
 	async checkout(hash: string): Promise<{ success: boolean; content: string | null }> {
-		return this.queue.enqueue(this.docId, 'checkout', async (_token) => {
+		return this.queue.enqueue(this.docId, 'checkout', async (token) => {
+			if (token.cancelled) { throw new Error(`Checkout cancelled: ${token.cancelReason}`); }
 			const targetNodeId = this.hashToNodeId.get(hash);
 			if (targetNodeId === undefined) {
 				// Hash not yet mapped — try to map it now

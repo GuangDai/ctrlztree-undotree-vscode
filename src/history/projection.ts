@@ -238,6 +238,13 @@ function handleProtect(proj: Projection, e: ProtectEvent): void {
 function handleArchive(proj: Projection, e: ArchiveEvent): void {
 	for (const id of e.nodeIds) {
 		proj.archivedNodes.add(id);
+		// Remove archived node from parent's children list (consistency)
+		for (const [, children] of proj.childrenOf) {
+			const idx = children.indexOf(id);
+			if (idx >= 0) {
+				children.splice(idx, 1);
+			}
+		}
 	}
 }
 
@@ -338,12 +345,17 @@ function addToContentHashIndex(proj: Projection, hash: ContentHash, nodeId: Node
 function computeBranchTips(proj: Projection): void {
 	const tips: NodeId[] = [];
 	for (const [id] of proj.byId) {
-		if (proj.deletedNodes.has(id)) {
+		if (proj.deletedNodes.has(id) || proj.archivedNodes.has(id)) {
+			continue;
+		}
+		// Nodes whose parent is archived are not true tips (they're in an archived sub-tree)
+		const parent = proj.parentOf.get(id);
+		if (parent !== undefined && parent !== null && proj.archivedNodes.has(parent)) {
 			continue;
 		}
 		const children = proj.childrenOf.get(id) ?? [];
 		const hasVisibleChildren = children.some(childId => !proj.deletedNodes.has(childId) && !proj.archivedNodes.has(childId));
-		if (!hasVisibleChildren && !proj.archivedNodes.has(id)) {
+		if (!hasVisibleChildren) {
 			tips.push(id);
 		}
 	}
