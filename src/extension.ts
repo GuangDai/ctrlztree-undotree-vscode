@@ -11,6 +11,13 @@ import { clampConfig } from './config/configService';
 import { ApplyEditTokenSet, ApplyEditToken } from './concurrency/applyEditTokens';
 import { applyEditAndVerify, ApplyEditResult } from './utils/editorApply';
 import { HistoryTreeProvider } from './ui/historyTreeProvider';
+import { createVSCodeSecretStore } from './security/secretStore';
+import { ProviderRegistry } from './ai/providers/registry';
+import { buildOpenAIChatCompatibleRequest } from './ai/providers/openaiChatCompatibleProvider';
+import { buildAnthropicMessagesRequest } from './ai/providers/anthropicMessagesProvider';
+import { buildOpenAIResponsesRequest } from './ai/providers/openaiResponsesProvider';
+import { buildCustomHttpJsonRequest } from './ai/providers/customHttpJsonProvider';
+import { ProviderName } from './ai/providers/registry';
 
 const extensionState = createExtensionState();
 
@@ -433,7 +440,121 @@ export function activate(context: vscode.ExtensionContext) {
         await webviewManager.showVisualizationForDocument(targetDocument);
     });
 
-    context.subscriptions.push(undoCommand, redoCommand, visualizeCommand);
+    // W8/W9: AI commands
+    const secretStore = createVSCodeSecretStore(context.secrets);
+
+    const setApiKeyCommand = vscode.commands.registerCommand('ctrlztree.ai.setApiKey', async () => {
+        const config = vscode.workspace.getConfiguration('ctrlztree');
+        const provider = config.get<string>('ai.provider', 'openai-chat-compatible') as ProviderName;
+
+        const key = await vscode.window.showInputBox({
+            prompt: `Enter API key for provider: ${provider}`,
+            password: true,
+            placeHolder: 'sk-... or your API key',
+            ignoreFocusOut: true,
+        });
+
+        if (!key || key.trim().length === 0) {
+            return;
+        }
+
+        const storageKey = `ctrlztree.ai.key.${provider}`;
+        await secretStore.set(storageKey, key.trim());
+        outputChannel.appendLine(`CtrlZTree: API key saved for provider ${provider}`);
+        vscode.window.showInformationMessage(`CtrlZTree: API key saved for ${provider}`);
+    });
+
+    const clearApiKeyCommand = vscode.commands.registerCommand('ctrlztree.ai.clearApiKey', async () => {
+        const config = vscode.workspace.getConfiguration('ctrlztree');
+        const provider = config.get<string>('ai.provider', 'openai-chat-compatible') as ProviderName;
+
+        const choice = await vscode.window.showWarningMessage(
+            `Clear API key for provider: ${provider}?`,
+            { modal: true },
+            'Clear'
+        );
+
+        if (choice !== 'Clear') {
+            return;
+        }
+
+        const storageKey = `ctrlztree.ai.key.${provider}`;
+        await secretStore.delete(storageKey);
+        outputChannel.appendLine(`CtrlZTree: API key cleared for provider ${provider}`);
+        vscode.window.showInformationMessage(`CtrlZTree: API key cleared for ${provider}`);
+    });
+
+    const testConnectionCommand = vscode.commands.registerCommand('ctrlztree.ai.testConnection', async () => {
+        const config = vscode.workspace.getConfiguration('ctrlztree');
+        const provider = config.get<string>('ai.provider', 'openai-chat-compatible') as ProviderName;
+        const baseUrl = config.get<string>('ai.baseUrl', '');
+        const model = config.get<string>('ai.model', '');
+
+        if (!baseUrl || !model) {
+            vscode.window.showErrorMessage('CtrlZTree: Please configure ai.baseUrl and ai.model in settings first.');
+            return;
+        }
+
+        const storageKey = `ctrlztree.ai.key.${provider}`;
+        const apiKey = await secretStore.get(storageKey);
+        if (!apiKey) {
+            vscode.window.showErrorMessage(`CtrlZTree: No API key found for ${provider}. Run "CtrlZTree: Set AI API Key" first.`);
+            return;
+        }
+
+        vscode.window.showInformationMessage(`CtrlZTree: Testing connection to ${provider} (${model})...`);
+
+        const buildRequest = (url: string, key: string) => {
+            switch (provider) {
+                case 'openai-chat-compatible':
+                    return buildOpenAIChatCompatibleRequest(
+                        { task: 'summarize_node', model, system: '', messages: [{ role: 'user', content: 'Hi' }], responseSchema: { type: 'object', properties: {} }, maxOutputTokens: 16, temperature: 0, topP: 1, toolMode: 'none', parallelToolCalls: false, metadata: { promptVersion: 'test', docFingerprint: 'test', headNodeId: 0, baseSeq: 0 } },
+                        key, url
+                    );
+                case 'anthropic-messages':
+                    return buildAnthropicMessagesRequest(
+                        { task: 'summarize_node', model, system: '', messages: [{ role: 'user', content: 'Hi' }], responseSchema: { type: 'object', properties: {} }, maxOutputTokens: 16, temperature: 0, topP: 1, toolMode: 'none', parallelToolCalls: false, metadata: { promptVersion: 'test', docFingerprint: 'test', headNodeId: 0, baseSeq: 0 } },
+                        key, url
+                    );
+                case 'openai-responses':
+                    return buildOpenAIResponsesRequest(
+                        { task: 'summarize_node', model, system: '', messages: [{ role: 'user', content: 'Hi' }], responseSchema: { type: 'object', properties: {} }, maxOutputTokens: 16, temperature: 0, topP: 1, toolMode: 'none', parallelToolCalls: false, metadata: { promptVersion: 'test', docFingerprint: 'test', headNodeId: 0, baseSeq: 0 } },
+                        key, url
+                    );
+                default:
+                    return buildCustomHttpJsonRequest(
+                        { task: 'summarize_node', model, system: '', messages: [{ role: 'user', content: 'Hi' }], responseSchema: { type: 'object', properties: {} }, maxOutputTokens: 16, temperature: 0, topP: 1, toolMode: 'none', parallelToolCalls: false, metadata: { promptVersion: 'test', docFingerprint: 'test', headNodeId: 0, baseSeq: 0 } },
+                        key, url
+                    );
+            }
+        };
+
+        try {
+            const httpReq = buildRequest(baseUrl, apiKey);
+            const response = await fetch(httpReq.url, {
+                method: httpReq.method,
+                headers: httpReq.headers,
+                body: httpReq.body,
+            });
+
+            const text = await response.text();
+            const firstChars = text.substring(0, 120);
+            outputChannel.appendLine(`CtrlZTree: Test connection ${provider} status=${response.status} body=${firstChars}`);
+
+            if (response.ok) {
+                vscode.window.showInformationMessage(`CtrlZTree: Connection to ${provider} (${model}) successful ✓`);
+            } else if (response.status === 401 || response.status === 403) {
+                vscode.window.showErrorMessage(`CtrlZTree: Authentication failed (${response.status}). Check your API key.`);
+            } else {
+                vscode.window.showWarningMessage(`CtrlZTree: Server returned ${response.status}. Provider may not support this model or endpoint.`);
+            }
+        } catch (e: any) {
+            outputChannel.appendLine(`CtrlZTree: Test connection error: ${e.message}`);
+            vscode.window.showErrorMessage(`CtrlZTree: Connection failed: ${e.message}`);
+        }
+    });
+
+    context.subscriptions.push(undoCommand, redoCommand, visualizeCommand, setApiKeyCommand, clearApiKeyCommand, testConnectionCommand);
 
     outputChannel.appendLine('CtrlZTree: Extension activation completed successfully.');
 }

@@ -59,6 +59,18 @@
       {
         "command": "ctrlztree.history.diffWithParent",
         "title": "CtrlZTree: Diff with Parent"
+      },
+      {
+        "command": "ctrlztree.ai.setApiKey",
+        "title": "CtrlZTree: Set AI API Key"
+      },
+      {
+        "command": "ctrlztree.ai.clearApiKey",
+        "title": "CtrlZTree: Clear AI API Key"
+      },
+      {
+        "command": "ctrlztree.ai.testConnection",
+        "title": "CtrlZTree: Test AI Connection"
       }
     ],
     "keybindings": [
@@ -129,6 +141,27 @@
           "default": 100,
           "minimum": 1,
           "description": "Maximum number of documents to track simultaneously. Oldest histories are removed when exceeded"
+        },
+        "ctrlztree.ai.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable AI features (requires API key configured via CtrlZTree: Set AI API Key)"
+        },
+        "ctrlztree.ai.provider": {
+          "type": "string",
+          "default": "openai-chat-compatible",
+          "enum": ["openai-chat-compatible", "anthropic-messages", "openai-responses", "custom-http-json"],
+          "description": "AI provider type"
+        },
+        "ctrlztree.ai.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model name to use (e.g. gpt-4o-mini, claude-sonnet-4-6, deepseek-v4-flash)"
+        },
+        "ctrlztree.ai.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "API base URL for the provider (e.g. https://api.openai.com/v1/chat/completions)"
         }
       }
     }
