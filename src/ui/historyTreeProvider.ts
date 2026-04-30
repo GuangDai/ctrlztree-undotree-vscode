@@ -14,15 +14,16 @@ export class HistoryTreeItem extends vscode.TreeItem {
 		public readonly labelStr: string,
 		public readonly contextVal: HistoryTreeItemContext,
 		public readonly childrenHashes?: string[],
-		public readonly hasMore: boolean = false
+		public readonly hasMore: boolean = false,
+		docUri?: string
 	) {
 		super(labelStr, childrenHashes && childrenHashes.length > 0
 			? vscode.TreeItemCollapsibleState.Collapsed
 			: vscode.TreeItemCollapsibleState.None);
 
 		this.contextValue = contextVal;
-		this.tooltip = `${labelStr}\nNode: ${nodeHash}`;
-		this.id = nodeHash;
+		this.tooltip = `${labelStr}\nNode: ${nodeHash.substring(0, 12)}`;
+		this.id = docUri ? `${docUri}:${nodeHash}` : nodeHash;
 
 		if (contextVal === 'ctrlztree.node.head') {
 			this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('terminal.ansiGreen'));
@@ -77,7 +78,7 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 			if (head) {
 				const headContent = this.tree.getContent(head);
 				const preview = headContent.length > 60 ? headContent.substring(0, 57) + '...' : headContent;
-				items.push(new HistoryTreeItem(head, `HEAD: ${preview}`, 'ctrlztree.node.head', undefined, true));
+				items.push(new HistoryTreeItem(head, `HEAD: ${preview}`, 'ctrlztree.node.head', undefined, true, this.docUri ?? undefined));
 			}
 			return items;
 		}
@@ -94,7 +95,7 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 		if (node.parent) {
 			const parentContent = this.tree.getContent(node.parent);
 			const preview = parentContent.length > 50 ? parentContent.substring(0, 47) + '...' : parentContent;
-			items.push(new HistoryTreeItem(node.parent, `◀ Undo to: ${preview}`, 'ctrlztree.node.branch', undefined));
+			items.push(new HistoryTreeItem(node.parent, `◀ Undo to: ${preview}`, 'ctrlztree.node.branch', undefined, false, this.docUri ?? undefined));
 		}
 
 		// Show redo children (branches)
@@ -109,7 +110,9 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 				childHash,
 				`${shortHash}: ${preview}`,
 				isBranchTip ? 'ctrlztree.node.branchTip' : 'ctrlztree.node.branch',
-				undefined
+				undefined,
+				false,
+				this.docUri ?? undefined
 			));
 		}
 
@@ -127,6 +130,6 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 
 		const content = this.tree.getContent(node.parent);
 		const preview = content.length > 50 ? content.substring(0, 47) + '...' : content;
-		return new HistoryTreeItem(node.parent, preview, 'ctrlztree.node.branch', undefined);
+		return new HistoryTreeItem(node.parent, preview, 'ctrlztree.node.branch', undefined, false, this.docUri ?? undefined);
 	}
 }

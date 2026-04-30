@@ -188,6 +188,13 @@ export function activate(context: vscode.ExtensionContext) {
             extensionState.historyTrees.delete(key);
         }
 
+        const controller = extensionState.historyControllers.get(key);
+        if (controller) {
+            controller.close();
+            extensionState.historyControllers.delete(key);
+            outputChannel.appendLine(`CtrlZTree: Closed HistoryController for ${key}`);
+        }
+
         // Also clean up related state
         extensionState.lastChangeTime.delete(key);
         extensionState.lastCursorPosition.delete(key);
