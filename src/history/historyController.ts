@@ -1,8 +1,9 @@
 import { DocId, NodeId, EventSeq, TxId, Cursor } from './ids';
-import { HistoryEvent, InitEvent, EditEvent, HeadMoveEvent } from './events';
+import { HistoryEvent, InitEvent, EditEvent, HeadMoveEvent, ContentRef } from './events';
 import { Projection, project } from './projection';
 import { CtrlZTree } from '../model/ctrlZTree';
 import { DocumentTaskQueue } from '../concurrency/documentTaskQueue';
+import { MemoryContentStore, SnapshotPolicy } from './contentStore';
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 
@@ -14,6 +15,8 @@ export interface HistoryControllerDeps {
 	docId: DocId;
 	tree: CtrlZTree;
 	queue: DocumentTaskQueue;
+	contentStore?: MemoryContentStore;
+	snapshotPolicy?: SnapshotPolicy;
 }
 
 export interface CommitResult {
@@ -29,6 +32,8 @@ export class HistoryController {
 	private docId: DocId;
 	private tree: CtrlZTree;
 	private queue: DocumentTaskQueue;
+	private contentStore?: MemoryContentStore;
+	private snapshotPolicy?: SnapshotPolicy;
 	private events: HistoryEvent[] = [];
 	private projection: Projection;
 	private nextNodeId: NodeId = 0;
@@ -41,6 +46,8 @@ export class HistoryController {
 		this.docId = deps.docId;
 		this.tree = deps.tree;
 		this.queue = deps.queue;
+		this.contentStore = deps.contentStore;
+		this.snapshotPolicy = deps.snapshotPolicy;
 
 		const rootHash = this.tree.getInternalRootHash();
 		const rootContent = this.tree.getContent(rootHash);
@@ -114,6 +121,13 @@ export class HistoryController {
 			const diffStr = this.tree.getAllNodes().get(newHash)?.diff ?? '';
 			const diffBytes = Buffer.byteLength(diffStr, 'utf8');
 
+			let contentRef: ContentRef;
+			if (this.contentStore) {
+				contentRef = this.contentStore.appendEdit(oldContent, newContent, nodeId, this.snapshotPolicy);
+			} else {
+				contentRef = { kind: 'inline-diff', nodeId, bytes: diffBytes };
+			}
+
 			const editEvent: EditEvent = {
 				kind: 'edit',
 				schemaVersion: 1,
@@ -123,7 +137,7 @@ export class HistoryController {
 				source: 'user',
 				nodeId,
 				parentId,
-				contentRef: { kind: 'inline-diff', nodeId, bytes: diffBytes },
+				contentRef,
 				contentHash: sha256(newContent),
 				cursor: cursorPos,
 				isNonEmpty: newContent.length > 0,
