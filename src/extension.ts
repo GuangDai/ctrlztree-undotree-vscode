@@ -25,6 +25,7 @@ import { RequestScheduler } from './concurrency/requestScheduler';
 import { clampAiConfig } from './config/configService';
 import { PersistenceService } from './security/persistenceService';
 import { generateMergePlan } from './history/mergeEngine';
+import { Logger, LogLevel } from './utils/logger';
 
 const extensionState = createExtensionState();
 
@@ -36,7 +37,11 @@ function isTrackableDocument(document: vscode.TextDocument | undefined): documen
 export function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel('CtrlZTree');
     context.subscriptions.push(outputChannel);
-    outputChannel.appendLine('CtrlZTree: Extension activating...');
+
+    const log = new Logger(outputChannel);
+    const logLevel = vscode.workspace.getConfiguration('ctrlztree').get<string>('logging.level', 'info') as LogLevel;
+    log.setLevel(logLevel);
+    log.info('CtrlZTree: Extension activating...');
 
     const editTokens = new ApplyEditTokenSet();
     extensionState.editTokens = editTokens;
@@ -48,9 +53,9 @@ export function activate(context: vscode.ExtensionContext) {
     const persistenceService = new PersistenceService(secretStore, context);
     persistenceService.initialize().then(initResult => {
         if (initResult.ok) {
-            outputChannel.appendLine('CtrlZTree: PersistenceService initialized.');
+            log.info('CtrlZTree: PersistenceService initialized.');
         } else {
-            outputChannel.appendLine(`CtrlZTree: PersistenceService not available: ${initResult.error}`);
+            log.warn(`CtrlZTree: PersistenceService not available: ${initResult.error}`);
         }
     });
 
@@ -308,6 +313,7 @@ export function activate(context: vscode.ExtensionContext) {
         registry: aiRegistry,
         scheduler: aiScheduler,
         secretStore,
+        logger: log,
     });
 
     // W5: TreeView command handlers

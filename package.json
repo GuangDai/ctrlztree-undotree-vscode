@@ -166,6 +166,12 @@
           "type": "string",
           "default": "",
           "description": "API base URL for the provider (e.g. https://api.openai.com/v1/chat/completions)"
+        },
+        "ctrlztree.logging.level": {
+          "type": "string",
+          "default": "info",
+          "enum": ["debug", "info", "warn", "error", "off"],
+          "description": "Output channel log level. debug=verbose, info=normal, warn=warnings only, error=errors only, off=silent"
         }
       }
     }
