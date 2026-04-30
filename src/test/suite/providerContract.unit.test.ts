@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import { buildOpenAIChatCompatibleRequest, parseOpenAIChatCompatibleResponse } from '../../ai/providers/openaiChatCompatibleProvider';
 import { buildAnthropicMessagesRequest, parseAnthropicMessagesResponse } from '../../ai/providers/anthropicMessagesProvider';
 import { buildCustomHttpJsonRequest, parseCustomHttpJsonResponse } from '../../ai/providers/customHttpJsonProvider';
+import { buildOpenAIResponsesRequest, parseOpenAIResponsesResponse } from '../../ai/providers/openaiResponsesProvider';
 import { UnifiedAiRequest } from '../../ai/types';
 
 function makeRequest(overrides: Partial<UnifiedAiRequest> = {}): UnifiedAiRequest {
@@ -192,5 +193,73 @@ suite('Custom HTTP JSON Provider', () => {
 		const result = buildCustomHttpJsonRequest(req, 'my-secret-key', 'https://example.com');
 		assert.ok(result.headers['Authorization'].includes('my-secret-key'));
 		assert.ok(result.headers['Authorization'].includes('Bearer'));
+	});
+});
+
+suite('OpenAI Responses Provider', () => {
+	test('buildRequest uses instructions for system prompt', () => {
+		const req = makeRequest();
+		const result = buildOpenAIResponsesRequest(req, 'key', 'https://api.openai.com/v1/responses');
+
+		assert.strictEqual(result.method, 'POST');
+		assert.ok(result.headers['Authorization'].includes('Bearer'));
+
+		const body = JSON.parse(result.body);
+		assert.strictEqual(body.model, 'test-model');
+		assert.strictEqual(body.instructions, 'You summarize code diffs.');
+		assert.strictEqual(body.store, false);
+		assert.strictEqual(body.max_output_tokens, 512);
+		assert.ok(Array.isArray(body.input));
+		assert.strictEqual(body.input.length, 1);
+	});
+
+	test('buildRequest with toolMode adds text.format', () => {
+		const req = makeRequest({ toolMode: 'force_schema_tool' });
+		const result = buildOpenAIResponsesRequest(req, 'key', 'https://api.example.com');
+		const body = JSON.parse(result.body);
+
+		assert.strictEqual(body.text.format.type, 'json_schema');
+		assert.strictEqual(body.text.format.strict, true);
+	});
+
+	test('parseResponse with JSON output returns structured', () => {
+		const responseBody = JSON.stringify({
+			output: [{
+				type: 'message',
+				content: [{
+					type: 'output_text',
+					text: JSON.stringify({
+						task: 'rename_node',
+						baseSeq: 5,
+						nodeUpdates: [{ nodeId: 1, name: 'Add auth' }],
+						operationPlan: [],
+						warnings: []
+					})
+				}]
+			}]
+		});
+
+		const result = parseOpenAIResponsesResponse(200, responseBody);
+		assert.ok(!('ok' in result));
+		assert.strictEqual((result as any).task, 'rename_node');
+		assert.strictEqual((result as any).nodeUpdates[0].name, 'Add auth');
+	});
+
+	test('parseResponse with plain text returns summary', () => {
+		const responseBody = JSON.stringify({
+			output: [{
+				type: 'message',
+				content: [{ type: 'output_text', text: 'Added authentication middleware.' }]
+			}]
+		});
+		const result = parseOpenAIResponsesResponse(200, responseBody);
+		assert.ok(!('ok' in result));
+		assert.strictEqual((result as any).nodeUpdates[0].summary, 'Added authentication middleware.');
+	});
+
+	test('parseResponse with HTTP error returns error', () => {
+		const result = parseOpenAIResponsesResponse(429, '{"error":{"message":"Rate limited"}}');
+		assert.strictEqual((result as any).ok, false);
+		assert.strictEqual((result as any).retryable, true);
 	});
 });
