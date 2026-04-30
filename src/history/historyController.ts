@@ -288,6 +288,60 @@ export class HistoryController {
 		return this.events;
 	}
 
+	executeMergePlan(plan: import('./mergeEngine').MergePlan, resultContent: string): { ok: true; nodeId: number } | { ok: false; error: string } {
+		if (!plan.valid) {
+			return { ok: false, error: 'Merge plan is not valid' };
+		}
+		const resultNodeId = this.nextNodeId++;
+		const mergeEvent: import('./events').MergeEvent = {
+			kind: 'merge',
+			schemaVersion: 1,
+			seq: this.nextSeq++,
+			at: Date.now(),
+			txId: this.genTxId(),
+			source: 'user',
+			resultId: resultNodeId,
+			sourceIds: plan.sourceIds,
+			parentId: plan.targetParentId,
+			contentRef: { kind: 'snapshot', nodeId: resultNodeId, bytes: Buffer.byteLength(resultContent, 'utf8') },
+			contentHash: sha256(resultContent),
+			archivedSourceIds: plan.sourceIds,
+			reason: 'User requested linear chain merge',
+		};
+		this.events.push(mergeEvent);
+		// Also set content in legacy tree for consistency
+		const parentHash = this.tree.getAllNodes().get(this.tree.getHead()!)?.parent;
+		if (parentHash) {
+			this.tree.setHead(parentHash);
+		}
+		this.tree.set(resultContent);
+		this.projection = project(this.docId, this.events);
+		this.needsPersist = true;
+		this.log?.info(`CtrlZTree: Merged ${plan.sourceIds.length} nodes -> #${resultNodeId}`);
+		return { ok: true, nodeId: resultNodeId };
+	}
+
+	executeDeletePlan(plan: import('./deleteEngine').DeletePlan): { ok: true } | { ok: false; error: string } {
+		if (!plan.valid) {
+			return { ok: false, error: 'Delete plan is not valid' };
+		}
+		const event: import('./events').ArchiveEvent = {
+			kind: 'archive',
+			schemaVersion: 1,
+			seq: this.nextSeq++,
+			at: Date.now(),
+			txId: this.genTxId(),
+			source: 'user',
+			nodeIds: plan.targetIds,
+			reason: 'User requested delete/archive',
+		};
+		this.events.push(event);
+		this.projection = project(this.docId, this.events);
+		this.needsPersist = true;
+		this.log?.info(`CtrlZTree: Deleted/archived ${plan.targetIds.length} nodes`);
+		return { ok: true };
+	}
+
 	getNeedsPersist(): boolean {
 		return this.needsPersist && this.persistenceService !== undefined;
 	}
@@ -296,7 +350,7 @@ export class HistoryController {
 		this.needsPersist = value;
 	}
 
-	static async fromPersistedEvents(deps: HistoryControllerDeps, events: HistoryEvent[]): Promise<HistoryController> {
+	static async fromPersistedEvents(deps: HistoryControllerDeps, events: HistoryEvent[], contentEntries?: Array<{ nodeId: number; content: string }>): Promise<HistoryController> {
 		const controller = new HistoryController(deps);
 		// Replace auto-generated init/edit events with persisted events
 		controller.events = events;
@@ -323,9 +377,15 @@ export class HistoryController {
 			}
 		}
 		(controller as any).nextTxId = maxTx;
+		// Restore ContentStore entries if present
+		if (contentEntries && controller.contentStore) {
+			for (const entry of contentEntries) {
+				controller.contentStore.putSnapshot(entry.nodeId, entry.content);
+			}
+		}
 		controller.projection = project(controller.docId, controller.events);
 		controller.needsPersist = false; // Just loaded from disk
-		controller.log?.info(`CtrlZTree: Restored ${events.length} events from persistence`);
+		controller.log?.info(`CtrlZTree: Restored ${events.length} events${contentEntries ? ` + ${contentEntries.length} snapshots` : ''} from persistence`);
 		return controller;
 	}
 
@@ -334,10 +394,25 @@ export class HistoryController {
 			return { ok: true };
 		}
 		const fingerprint = PersistenceService.computeFingerprint(this.docId);
+		// Collect ContentStore snapshots for persistence
+		let contentEntries: Array<{ nodeId: number; content: string }> | undefined;
+		if (this.contentStore) {
+			const proj = this.projection;
+			contentEntries = [];
+			for (const [nodeId] of proj.byId) {
+				if (this.contentStore.hasSnapshot(nodeId)) {
+					const content = this.contentStore.resolve(nodeId, proj);
+					if (content !== null) {
+						contentEntries.push({ nodeId, content });
+					}
+				}
+			}
+		}
 		const result = await this.persistenceService.saveDocument(
 			fingerprint,
 			this.events,
 			this.projection.lastSeq,
+			contentEntries,
 		);
 		if (result.ok) {
 			this.needsPersist = false;

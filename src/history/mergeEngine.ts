@@ -1,5 +1,6 @@
-import { NodeId } from './ids';
+import { NodeId, EventSeq } from './ids';
 import { Projection } from './projection';
+import { MergeEvent } from './events';
 
 export interface MergePlan {
 	sourceIds: NodeId[];
@@ -7,6 +8,13 @@ export interface MergePlan {
 	estimatedBytesFreed: number;
 	warnings: string[];
 	valid: boolean;
+}
+
+export interface MergeResult {
+	resultNodeId: NodeId;
+	resultContentHash: string;
+	mergeEvent: MergeEvent;
+	sourceIds: NodeId[];
 }
 
 export function generateMergePlan(
@@ -99,5 +107,38 @@ export function generateMergePlan(
 		estimatedBytesFreed,
 		warnings,
 		valid: true
+	};
+}
+
+export function executeMerge(
+	plan: MergePlan,
+	projection: Projection,
+	resultContent: string,
+	resultNodeId: NodeId,
+	baseSeq: EventSeq,
+): MergeResult {
+	const contentHash = ''; // Will be computed by the caller via sha256
+
+	const mergeEvent: MergeEvent = {
+		kind: 'merge',
+		schemaVersion: 1,
+		seq: baseSeq + 1,
+		at: Date.now(),
+		txId: `tx-merge-${resultNodeId}`,
+		source: 'user',
+		resultId: resultNodeId,
+		sourceIds: plan.sourceIds,
+		parentId: plan.targetParentId,
+		contentRef: { kind: 'snapshot', nodeId: resultNodeId, bytes: Buffer.byteLength(resultContent, 'utf8') },
+		contentHash,
+		archivedSourceIds: plan.sourceIds,
+		reason: 'User requested linear chain merge',
+	};
+
+	return {
+		resultNodeId,
+		resultContentHash: contentHash,
+		mergeEvent,
+		sourceIds: plan.sourceIds,
 	};
 }

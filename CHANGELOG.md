@@ -2,6 +2,41 @@
 
 All notable changes to the "ctrlztree" extension will be documented in this file.
 
+## [0.6.0] - 2026-04-30
+
+### Added
+- **V4 Architecture**: New event-driven history core with append-only event log, pure projection, and ContentStore with LRU/snapshot/diff strategies
+- **HistoryController**: Bridges legacy CtrlZTree with new event log + projection model. Manages commit/undo/redo/checkout lifecycle and encrypted persistence
+- **TreeView Sidebar**: Dedicated sidebar panel showing current HEAD, undo targets, and redo branches with content previews
+- **AI Pipeline**: Provider-based AI with OpenAI Chat/Responses, Anthropic Messages, and custom HTTP JSON providers. Supports history node naming, summarization, and operation planning
+- **Encrypted Persistence**: AES-256-GCM encrypted event log with fingerprint-based file naming. Configurable mode: off/ask/on
+- **RequestScheduler**: AI request concurrency control, rate limiting, retry with backoff, and cancellation
+- **DiffContentRegistry**: Opaque ID-based diff content mapping to prevent source content in URI query strings
+- **Redactor**: Sensitive data redaction for AI prompts and logs (API keys, tokens, PEM keys, secrets)
+- **Merge Engine**: Linear history chain merging with plan validation, preview, and execution
+- **Pruning Engine**: Archive-first history pruning with configurable node limits
+- **Delete Engine**: Soft/hard delete with plan validation and orphan detection
+- **Logger**: Configurable logging levels (debug/info/warn/error/off) with dynamic reconfiguration
+
+### Changed
+- **Undo/Redo**: Now routes through HistoryController for consistent event logging and projection updates
+- **Webview navigate**: Uses HistoryController.checkout() for consistent state management
+- **Persistence**: Defaults to off (was auto-on). User must explicitly enable or approve
+- **CSP**: Removed `unsafe-inline` from webview Content-Security-Policy
+- **AI baseUrl**: Enforced HTTPS-only (localhost HTTP allowed for development)
+- **TreeView previews**: Show first line only for better privacy
+- **Package engines**: Raised minimum VS Code to ^1.67.0 (uses vscode.tabGroups API)
+
+### Fixed
+- **Dual-store consistency**: undo/redo/webview navigate now route through single HistoryController path
+- **Deactivate data loss**: `deactivate()` now awaits flushToDisk with 3-second timeout
+- **RequestScheduler**: Retry no longer double-books concurrent slots; NaN sleep on maxRequestsPerHour=0 fixed
+- **DocumentTaskQueue**: Added CancellationToken support; async nested enqueue detection
+- **Persistence**: Malformed events now fail-closed; manifest written first with dataHash integrity check
+- **SecretStore**: Proactive availability probing instead of passive error detection
+- **ContentStore**: Root and initial snapshot entries properly seeded; snapshotEveryNodes=0 NaN bug fixed
+- **CtrlZTree**: Hash collision uses monotonic suffix instead of salt; RangeError on Math.max(...largeArray) fixed
+
 ## [0.5.7] - 2026-04-17
 
 ### Fixed

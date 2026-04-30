@@ -216,7 +216,7 @@ export function activate(context: vscode.ExtensionContext) {
                 const fp = PersistenceService.computeFingerprint(key);
                 const loadResult = await persistenceService.loadDocument(fp);
                 if (loadResult.ok && loadResult.events.length > 0) {
-                    controller = await HistoryController.fromPersistedEvents(deps, loadResult.events);
+                    controller = await HistoryController.fromPersistedEvents(deps, loadResult.events, loadResult.contentEntries);
                     log.info(`CtrlZTree: Restored ${loadResult.events.length} events from disk for ${key}`);
                 }
             }
@@ -526,8 +526,21 @@ export function activate(context: vscode.ExtensionContext) {
         );
 
         if (choice === 'Merge') {
-            log.info(`CtrlZTree: Merge confirmed for ${linearChain.length} nodes (linear chain on head path). Merge execution deferred to W4 executor.`);
-            vscode.window.showInformationMessage(`CtrlZTree: Merge plan created. Execution will be available in a future update.`);
+            log.info(`CtrlZTree: Executing merge for ${linearChain.length} nodes on head path`);
+
+            // Get content of the last (most recent) node in the chain as the merged result
+            const lastSourceId = linearChain[0]; // linearChain[0] is head/youngest
+            const resultContent = controller.getContent();
+            // Execute the merge via HistoryController
+            const result = controller.executeMergePlan(plan, resultContent);
+            if (!result.ok) {
+                vscode.window.showErrorMessage(`CtrlZTree: Merge failed: ${result.error}`);
+                return;
+            }
+
+            vscode.window.showInformationMessage(
+                `CtrlZTree: Merged ${linearChain.length} nodes into node #${result.nodeId}. Write your next edit to see the result.`
+            );
         }
     });
 

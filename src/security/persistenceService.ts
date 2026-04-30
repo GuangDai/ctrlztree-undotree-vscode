@@ -15,11 +15,6 @@ interface DocManifest {
 	dataHash?: string;
 }
 
-interface PersistConfig {
-	basePath: vscode.Uri;
-	enabled: boolean;
-}
-
 export class PersistenceService {
 	private persistenceStore: PersistenceStore;
 	private basePath: vscode.Uri;
@@ -44,6 +39,7 @@ export class PersistenceService {
 		docFingerprint: string,
 		events: readonly HistoryEvent[],
 		lastSeq: EventSeq,
+		contentEntries?: Array<{ nodeId: number; content: string }>,
 	): Promise<{ ok: true } | { ok: false; error: string }> {
 		if (!this.isAvailable()) {
 			return { ok: false, error: 'PersistenceStore is not available' };
@@ -71,9 +67,16 @@ export class PersistenceService {
 
 			const dataFile = vscode.Uri.joinPath(docDir, 'events.ndjson.enc');
 			const manifestFile = vscode.Uri.joinPath(docDir, 'manifest.json.enc');
+			const contentFile = vscode.Uri.joinPath(docDir, 'content.ndjson.enc');
 
+			// Write manifest first, then data, then content
 			await vscode.workspace.fs.writeFile(manifestFile, encryptedManifest);
 			await vscode.workspace.fs.writeFile(dataFile, encryptedData);
+			if (contentEntries && contentEntries.length > 0) {
+				const contentNdjson = contentEntries.map(c => JSON.stringify(c)).join('\n') + '\n';
+				const encryptedContent = await this.persistenceStore.encrypt(contentNdjson);
+				await vscode.workspace.fs.writeFile(contentFile, encryptedContent);
+			}
 
 			return { ok: true };
 		} catch (e: any) {
@@ -83,7 +86,7 @@ export class PersistenceService {
 
 	async loadDocument(
 		docFingerprint: string,
-	): Promise<{ ok: true; events: HistoryEvent[]; lastSeq: EventSeq } | { ok: false; error: string }> {
+	): Promise<{ ok: true; events: HistoryEvent[]; lastSeq: EventSeq; contentEntries?: Array<{ nodeId: number; content: string }> } | { ok: false; error: string }> {
 		if (!this.isAvailable()) {
 			return { ok: false, error: 'PersistenceStore is not available' };
 		}
@@ -120,7 +123,28 @@ export class PersistenceService {
 				return { ok: false, error: `Event count mismatch: expected ${manifest.eventCount}, got ${events.length}` };
 			}
 
-			return { ok: true, events, lastSeq: manifest.lastEventSeq };
+			// Load ContentStore entries if present
+			let contentEntries: Array<{ nodeId: number; content: string }> | undefined;
+			const contentFile = vscode.Uri.joinPath(docDir, 'content.ndjson.enc');
+			try {
+				const encryptedContent = await vscode.workspace.fs.readFile(contentFile);
+				const contentNdjson = await this.persistenceStore.decrypt(Buffer.from(encryptedContent));
+				contentEntries = [];
+				const clines = contentNdjson.split('\n');
+				for (let i = 0; i < clines.length; i++) {
+					const trimmed = clines[i].trim();
+					if (trimmed.length === 0) { continue; }
+					try {
+						contentEntries.push(JSON.parse(trimmed));
+					} catch {
+						return { ok: false, error: `Malformed content entry on line ${i + 1}` };
+					}
+				}
+			} catch {
+				// Content file is optional — events can exist without persisted content
+			}
+
+			return { ok: true, events, lastSeq: manifest.lastEventSeq, contentEntries };
 		} catch (e: any) {
 			if (e?.code === 'FileNotFound' || e?.message?.includes('not found')) {
 				return { ok: false, error: 'No saved data for this document' };
@@ -134,9 +158,11 @@ export class PersistenceService {
 			const docDir = vscode.Uri.joinPath(this.basePath, docFingerprint);
 			const dataFile = vscode.Uri.joinPath(docDir, 'events.ndjson.enc');
 			const manifestFile = vscode.Uri.joinPath(docDir, 'manifest.json.enc');
+			const contentFile = vscode.Uri.joinPath(docDir, 'content.ndjson.enc');
 
 			try { await vscode.workspace.fs.delete(dataFile); } catch { /* ignore */ }
 			try { await vscode.workspace.fs.delete(manifestFile); } catch { /* ignore */ }
+			try { await vscode.workspace.fs.delete(contentFile); } catch { /* ignore */ }
 			try { await vscode.workspace.fs.delete(docDir); } catch { /* ignore */ }
 
 			return { ok: true };
