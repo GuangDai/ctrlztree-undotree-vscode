@@ -462,19 +462,13 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            const applyResult = await applyTreeStateToDocument(document, tree, 'checkout', editTokens);
+            const applyResult = await applyTreeStateToDocument(document, tree, 'checkout', editTokens, controller);
             if (!applyResult.ok) {
-                // Controller already recorded the checkout in events/projection but apply failed.
-                // Undo the checkout to keep projection consistent with actual document state.
                 const newHash = controller.getHead()!;
-                // Find parent to undo back - or just re-apply previous state
-                // Best effort: controller already sees checkout, tree head is at target.
-                // If apply fails, tree content is still at target but editor is not.
-                // Force tree back to the original state:
                 const prevHash = tree.getAllNodes().get(newHash)?.parent;
                 if (prevHash) {
                     await controller.checkout(prevHash);
-                    applyTreeStateToDocument(document, tree, 'checkout', editTokens).catch(() => {});
+                    applyTreeStateToDocument(document, tree, 'checkout', editTokens, controller).catch(() => {});
                 }
                 log.error(`CtrlZTree: TreeView navigate apply failed: ${applyResult.error}`);
             }
@@ -585,7 +579,7 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        const result = await applyTreeStateToDocument(document, tree, 'undo', editTokens);
+        const result = await applyTreeStateToDocument(document, tree, 'undo', editTokens, controller);
         if (!result.ok) {
             // Rollback: set head back to saved
             if (savedHead) {
@@ -628,7 +622,7 @@ export function activate(context: vscode.ExtensionContext) {
                 log.error('CtrlZTree: Redo returned no content.');
                 return;
             }
-            const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens);
+            const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens, controller);
             if (!result.ok) {
                 if (savedHead) {
                     const failedHead = navResult.hash;
@@ -666,7 +660,7 @@ export function activate(context: vscode.ExtensionContext) {
             log.error('CtrlZTree: Redo returned no content.');
             return;
         }
-        const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens);
+        const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens, controller);
         if (!result.ok) {
             if (savedHead) {
                 const failedHead = navResult.hash;
@@ -894,12 +888,14 @@ async function applyTreeStateToDocument(
     document: vscode.TextDocument,
     tree: CtrlZTree,
     reason: ApplyEditToken['reason'],
-    editTokens: ApplyEditTokenSet
+    editTokens: ApplyEditTokenSet,
+    controller?: HistoryController
 ): Promise<ApplyEditResult> {
     const docId = document.uri.toString();
     const token = editTokens.begin(docId, reason);
     try {
-        const content = tree.getContent();
+        // Prefer controller's content for consistent state (reduces dual-store divergence)
+        const content = controller ? controller.getContent() : tree.getContent();
         const cursorPosition = tree.getCursorPosition();
 
         const result = await applyEditAndVerify(document, content);
