@@ -15,10 +15,6 @@ const VALID_COMMANDS = new Set<string>([
 	'webviewError'
 ]);
 
-function hasStringField(obj: unknown, field: string): obj is Record<string, unknown> {
-	return typeof obj === 'object' && obj !== null && typeof (obj as Record<string, unknown>)[field] === 'string';
-}
-
 function hasObjectField(obj: unknown, field: string): obj is Record<string, unknown> {
 	return typeof obj === 'object' && obj !== null && typeof (obj as Record<string, unknown>)[field] === 'object' && (obj as Record<string, unknown>)[field] !== null;
 }

@@ -265,7 +265,7 @@ suite('Projection', () => {
 			}
 		];
 		const p = project('doc1', events);
-		assert.strictEqual((p.byId.get(1) as any).summary, 'Added feature X');
+		assert.strictEqual(p.byId.get(1)?.summary, 'Added feature X');
 	});
 
 	test('reset event clears all state and creates new root', () => {

@@ -5,6 +5,7 @@ export interface NodeView {
 	nodeId: NodeId;
 	contentHash: ContentHash;
 	name?: string;
+	summary?: string;
 	protected: boolean;
 	createdAt: number;
 }
@@ -273,10 +274,9 @@ function handlePrune(proj: Projection, e: PruneEvent): void {
 }
 
 function handleSummarize(proj: Projection, e: SummarizeEvent): void {
-	// Store summary metadata on node
 	const view = proj.byId.get(e.nodeId);
 	if (view) {
-		(view as any).summary = e.summary;
+		view.summary = e.summary;
 	}
 }
 

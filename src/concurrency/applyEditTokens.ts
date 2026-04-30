@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 export interface ApplyEditToken {
 	id: string;
 	docId: string;
@@ -46,6 +48,6 @@ export class ApplyEditTokenSet {
 
 function generateTokenId(): string {
 	const timestamp = Date.now().toString(36);
-	const rand = Math.floor(Math.random() * 0xffffffff).toString(36);
+	const rand = crypto.randomBytes(4).toString('hex');
 	return `at_${timestamp}_${rand}`;
 }

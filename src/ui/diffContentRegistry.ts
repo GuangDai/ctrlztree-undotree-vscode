@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 export interface DiffRecord {
 	original: string;
 	modified: string;
@@ -21,7 +23,7 @@ export function createDiffContentRegistry(maxEntries?: number): DiffContentRegis
 	function generateId(): string {
 		const seq = nextSeq++;
 		const timestamp = Date.now().toString(36);
-		const rand = Math.floor(Math.random() * 0xffffffff).toString(36);
+		const rand = crypto.randomBytes(4).toString('hex');
 		return `dcr_${timestamp}_${rand}_${seq}`;
 	}
 

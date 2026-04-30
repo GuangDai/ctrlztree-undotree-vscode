@@ -37,6 +37,84 @@ export function createWebviewManager({
     const { activeVisualizationPanels, panelToFullHashMap, historyTrees, lastChangeTime, lastCursorPosition, lastChangeType, pendingChanges, documentChangeTimeouts } = state;
     const panelDocumentContexts = new Map<vscode.WebviewPanel, { docUriString: string; document: vscode.TextDocument }>();
 
+    // W7: Graph state tracking for incremental updates
+    interface GraphState {
+        nodeIds: Set<string>;
+        nodeData: Map<string, { label: string; title: string }>;
+        edgeKeys: Set<string>;
+        headId: string | null;
+        initialized: boolean;
+    }
+    const panelGraphState = new Map<vscode.WebviewPanel, GraphState>();
+
+    function getOrCreateGraphState(panel: vscode.WebviewPanel): GraphState {
+        let gs = panelGraphState.get(panel);
+        if (!gs) {
+            gs = { nodeIds: new Set(), nodeData: new Map(), edgeKeys: new Set(), headId: null, initialized: false };
+            panelGraphState.set(panel, gs);
+        }
+        return gs;
+    }
+
+    function computeGraphDiff(
+        prev: GraphState,
+        nodes: Array<{ id: string; label: string; title: string }>,
+        edges: Array<{ from: string; to: string }>,
+        headId: string | null
+    ) {
+        const addedNodes: typeof nodes = [];
+        const removedNodes: string[] = [];
+        const updatedNodes: typeof nodes = [];
+        const addedEdges: typeof edges = [];
+        const removedEdges: typeof edges = [];
+
+        const newNodeIds = new Set(nodes.map(n => n.id));
+        const newEdgeKeys = new Set(edges.map(e => `${e.from}->${e.to}`));
+
+        // Find removed nodes
+        for (const oldId of prev.nodeIds) {
+            if (!newNodeIds.has(oldId)) {
+                removedNodes.push(oldId);
+            }
+        }
+        // Find added/updated nodes
+        for (const node of nodes) {
+            if (!prev.nodeIds.has(node.id)) {
+                addedNodes.push(node);
+            } else {
+                const prevData = prev.nodeData.get(node.id);
+                if (prevData && (prevData.label !== node.label || prevData.title !== node.title)) {
+                    updatedNodes.push(node);
+                }
+            }
+        }
+        // Find added/removed edges
+        for (const oldKey of prev.edgeKeys) {
+            if (!newEdgeKeys.has(oldKey)) {
+                const [from, to] = oldKey.split('->');
+                removedEdges.push({ from, to });
+            }
+        }
+        for (const edge of edges) {
+            const key = `${edge.from}->${edge.to}`;
+            if (!prev.edgeKeys.has(key)) {
+                addedEdges.push(edge);
+            }
+        }
+
+        // Update state
+        prev.nodeIds = newNodeIds;
+        prev.nodeData.clear();
+        for (const n of nodes) {
+            prev.nodeData.set(n.id, { label: n.label, title: n.title });
+        }
+        prev.edgeKeys = newEdgeKeys;
+        prev.headId = headId;
+        prev.initialized = true;
+
+        return { addedNodes, removedNodes, updatedNodes, addedEdges, removedEdges };
+    }
+
     function formatTimeAgo(timestamp: number): string {
         const now = Date.now();
         const diff = now - timestamp;
@@ -311,6 +389,16 @@ export function createWebviewManager({
 
         panelToFullHashMap.set(panel, currentFullHashMap);
 
+        // W7: Compute incremental graph diff for future patch protocol
+        const gs = getOrCreateGraphState(panel);
+        const diff = computeGraphDiff(gs, nodesArrayForVis, edgesArrayForVis, currentHeadShortHash);
+        if (gs.initialized && (diff.addedNodes.length > 0 || diff.removedNodes.length > 0 || diff.updatedNodes.length > 0)) {
+            outputChannel.appendLine(
+                `CtrlZTree: Graph diff [+${diff.addedNodes.length} -${diff.removedNodes.length} ~${diff.updatedNodes.length}] ` +
+                `edges [+${diff.addedEdges.length} -${diff.removedEdges.length}]`
+            );
+        }
+
         const success = safePostMessage(panel, {
             command: 'updateTree',
             nodes: nodesArrayForVis,
@@ -511,6 +599,7 @@ export function createWebviewManager({
                     panelDocumentContexts.delete(panel);
                 }
                 panelToFullHashMap.delete(panel);
+                panelGraphState.delete(panel);
             },
             null,
             context.subscriptions

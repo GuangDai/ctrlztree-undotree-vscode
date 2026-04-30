@@ -241,24 +241,6 @@
                 diffButton.style.left = `${clampedLeft}px`;
                 diffButton.style.top = `${clampedTop}px`;
 
-                // Post debug info for diagnostics (non-blocking)
-                try {
-                    vscode.postMessage({
-                        command: 'dbgCoords',
-                        data: {
-                            selectedNodeId,
-                            position: { x: position.x, y: position.y },
-                            domPosition: { x: domPosition.x, y: domPosition.y },
-                            left,
-                            top,
-                            clampedLeft,
-                            clampedTop
-                        }
-                    });
-                } catch (e) {
-                    // ignore
-                }
-
                 diffButton.style.display = 'block';
             } catch (e) {
                 // ignore positioning errors
