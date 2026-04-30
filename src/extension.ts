@@ -24,6 +24,7 @@ import { BaseAiProvider } from './ai/providers/base';
 import { RequestScheduler } from './concurrency/requestScheduler';
 import { clampAiConfig } from './config/configService';
 import { PersistenceService } from './security/persistenceService';
+import { generateMergePlan } from './history/mergeEngine';
 
 const extensionState = createExtensionState();
 
@@ -368,6 +369,51 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // W4: Merge linear chain command
+    const mergeCommand = vscode.commands.registerCommand('ctrlztree.history.mergeChain', async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor || !isTrackableDocument(editor.document)) { return; }
+
+        const controller = getOrCreateController(editor.document);
+        const proj = controller.getProjection();
+
+        // Find all nodes on head-to-root path that form a linear chain (each has exactly 1 child)
+        const linearChain: number[] = [];
+        let cursor: number | null = proj.headId;
+        while (cursor !== null && cursor !== proj.rootId) {
+            const children = proj.childrenOf.get(cursor) ?? [];
+            if (children.filter(c => !proj.deletedNodes.has(c)).length <= 1) {
+                linearChain.push(cursor);
+            } else {
+                break;
+            }
+            const parent: number | null = proj.parentOf.get(cursor) ?? null;
+            cursor = parent;
+        }
+
+        if (linearChain.length < 2) {
+            vscode.window.showInformationMessage('CtrlZTree: No linear chain found to merge (need >= 2 consecutive nodes with single children).');
+            return;
+        }
+
+        const plan = generateMergePlan(proj, linearChain);
+        if (!plan.valid) {
+            vscode.window.showWarningMessage(`CtrlZTree: Merge plan invalid: ${plan.warnings.join('; ')}`);
+            return;
+        }
+
+        const choice = await vscode.window.showInformationMessage(
+            `Merge ${linearChain.length} consecutive nodes into 1? (~${plan.estimatedBytesFreed} bytes freed)${plan.warnings.length > 0 ? '\nWarnings: ' + plan.warnings.join(', ') : ''}`,
+            { modal: true },
+            'Merge'
+        );
+
+        if (choice === 'Merge') {
+            outputChannel.appendLine(`CtrlZTree: Merge confirmed for ${linearChain.length} nodes (linear chain on head path). Merge execution deferred to W4 executor.`);
+            vscode.window.showInformationMessage(`CtrlZTree: Merge plan created. Execution will be available in a future update.`);
+        }
+    });
+
     const undoCommand = vscode.commands.registerCommand('ctrlztree.undo', async () => {
         const editor = vscode.window.activeTextEditor;
         
@@ -633,7 +679,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(undoCommand, redoCommand, visualizeCommand, setApiKeyCommand, clearApiKeyCommand, testConnectionCommand);
+    context.subscriptions.push(undoCommand, redoCommand, visualizeCommand, mergeCommand, setApiKeyCommand, clearApiKeyCommand, testConnectionCommand);
 
     outputChannel.appendLine('CtrlZTree: Extension activation completed successfully.');
 }

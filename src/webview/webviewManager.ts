@@ -848,7 +848,6 @@ export function createWebviewManager({
 
         const scheme = editor.document.uri.scheme;
         if (scheme !== 'file' && scheme !== 'untitled') {
-            outputChannel.appendLine(`CtrlZTree: Skipping read-only/special editor with scheme: ${scheme}`);
             if (state.lastValidEditorUri) {
                 const lastValidDoc = vscode.workspace.textDocuments.find(doc => doc.uri.toString() === state.lastValidEditorUri);
                 if (lastValidDoc) {

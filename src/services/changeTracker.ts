@@ -51,7 +51,6 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
 
         const editorForDoc = vscode.window.visibleTextEditors.find(e => e.document === event.document);
         if (editorForDoc && editorForDoc.document.uri.scheme !== 'file' && editorForDoc.document.uri.scheme !== 'untitled') {
-            outputChannel.appendLine(`CtrlZTree: Skipping read-only or special document with scheme: ${editorForDoc.document.uri.scheme}`);
             return;
         }
 
