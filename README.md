@@ -75,6 +75,7 @@ Instead of storing complete document copies, CtrlZTree uses intelligent diff alg
 
 For full release notes see [CHANGELOG.md](CHANGELOG.md). Recent highlights:
 
+- **0.6.0 (2026-04-30)** — **Architecture Upgrade**: New `HistoryController` with append-only event log and `sha256(content)` hashing. AI pipeline with `ProviderRegistry`, `RequestScheduler`, and encrypted persistence. `TreeView` uses stable `DocId:NodeId` identifiers. Webview memory optimization with `retainContextWhenHidden: false`. Full P0/P1 safety fixes across scheduler cancel model, AI validation fail-closed, and redaction.
 - **0.5.7 (2026-04-17)** — **Critical Fixes**: Fixed `RangeError` infinite loop crashes caused by hash collisions. Prevented OOM memory leaks on large files by switching to a prefix/suffix stripped block replacement diff. Single-character tracking bug resolved with eager document initialization. Native undo behavior preserved for untracked inputs like Jupyter Notebooks.
 - **0.5.6 (2026-03-31)** — Fixed dynamic programming array lookahead bugs, hash collisions, tree resets, and refined algorithm performance.
 - **0.5.5 (2026-03-31)** — Quality & robustness improvements: automatic history pruning with configurable limits (1000 nodes per document, 100 documents max), strict input validation for diff deserialization, code consolidation eliminating duplicate formatting functions, improved error handling with proper type safety, and memory leak prevention with automatic document cleanup.
@@ -93,13 +94,27 @@ CtrlZTree provides configurable settings to control memory usage and pruning beh
 - **`ctrlztree.enablePruning`** (boolean, default: `true`)
   - Enable or disable automatic history tree pruning. When disabled, history will grow indefinitely until you close the file.
 
-- **`ctrlztree.maxHistoryNodesPerDocument`** (integer, default: `1000`, minimum: `100`)
+- **`ctrlztree.maxHistoryNodesPerDocument`** (integer, default: `1000`, minimum: `50`)
   - Maximum number of history nodes to keep per document. When exceeded, the oldest nodes are removed while preserving the current state and recent history.
   - Example: Set to `500` for lower memory usage, or `2000` for more extensive history on powerful machines.
 
 - **`ctrlztree.maxTrackedDocuments`** (integer, default: `100`, minimum: `1`)
   - Maximum number of documents to keep history for. When exceeded, histories for oldest (least recently used) closed documents are discarded.
   - Example: Set to `50` if working with many temporary files, or `200` for keeping more file histories.
+
+### AI Settings (experimental)
+
+- **`ctrlztree.ai.enabled`** (boolean, default: `false`)
+  - Enable AI features. When disabled, all AI commands are inactive.
+  
+- **`ctrlztree.ai.provider`** (enum, default: `openai-chat-compatible`)
+  - AI provider: `openai-chat-compatible`, `openai-responses`, `anthropic-messages`, or `custom-http-json`.
+
+- **`ctrlztree.ai.model`** (string, default: `""`)
+  - Model name (e.g. `gpt-4o-mini`, `claude-sonnet-4-6`).
+
+- **`ctrlztree.ai.baseUrl`** (string, default: `""`)
+  - API endpoint URL for the provider.
 
 ### Example User Settings
 
