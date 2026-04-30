@@ -17,8 +17,8 @@ const REDACTION_PATTERNS: Array<{ name: string; pattern: RegExp; replacement: st
 	// API key header (X-Api-Key, X-API-Key, api-key, apikey)
 	{ name: 'api_key_header', pattern: /(?:X-Api-Key|X-API-Key|api-key|apikey):\s*[^\n\r]*/gi, replacement: 'X-Api-Key: [REDACTED]' },
 
-	// GitHub Personal Access Tokens (ghp_, gho_, ghs_, ghu_)
-	{ name: 'github_pat', pattern: /\bgh[pous]_[A-Za-z0-9_]{36,255}\b/g, replacement: '[REDACTED:github-token]' },
+	// GitHub Personal Access Tokens (ghp_, gho_, ghs_, ghu_, github_pat_)
+	{ name: 'github_pat', pattern: /\b(?:gh[pous]_|github_pat_)[A-Za-z0-9_]{22,255}\b/g, replacement: '[REDACTED:github-token]' },
 
 	// Slack tokens (xoxb-, xoxp-, xoxa-, xoxr-)
 	{ name: 'slack_token', pattern: /\bxox[bpar]-[0-9]{10,13}-[0-9]{10,13}-[A-Za-z0-9_]{24,}\b/g, replacement: '[REDACTED:slack-token]' },
