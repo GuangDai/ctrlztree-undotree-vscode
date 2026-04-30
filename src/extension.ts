@@ -12,19 +12,18 @@ import { ApplyEditTokenSet, ApplyEditToken } from './concurrency/applyEditTokens
 import { applyEditAndVerify, ApplyEditResult } from './utils/editorApply';
 import { HistoryTreeProvider } from './ui/historyTreeProvider';
 import { createVSCodeSecretStore } from './security/secretStore';
-import { ProviderRegistry } from './ai/providers/registry';
+import { ProviderRegistry, ProviderName, createDefaultCapabilities } from './ai/providers/registry';
 import { buildOpenAIChatCompatibleRequest, parseOpenAIChatCompatibleResponse } from './ai/providers/openaiChatCompatibleProvider';
 import { buildAnthropicMessagesRequest, parseAnthropicMessagesResponse } from './ai/providers/anthropicMessagesProvider';
 import { buildOpenAIResponsesRequest, parseOpenAIResponsesResponse } from './ai/providers/openaiResponsesProvider';
 import { buildCustomHttpJsonRequest, parseCustomHttpJsonResponse } from './ai/providers/customHttpJsonProvider';
-import { ProviderName } from './ai/providers/registry';
 import { DocumentTaskQueue } from './concurrency/documentTaskQueue';
 import { HistoryController } from './history/historyController';
 import { AiService } from './ai/aiService';
 import { BaseAiProvider } from './ai/providers/base';
-import { createDefaultCapabilities } from './ai/providers/registry';
 import { RequestScheduler } from './concurrency/requestScheduler';
 import { clampAiConfig } from './config/configService';
+import { PersistenceService } from './security/persistenceService';
 
 const extensionState = createExtensionState();
 
@@ -43,6 +42,16 @@ export function activate(context: vscode.ExtensionContext) {
 
     // W8: SecretStore (created early so aiService + commands can use it)
     const secretStore = createVSCodeSecretStore(context.secrets);
+
+    // W6: PersistenceService (encrypted history persistence)
+    const persistenceService = new PersistenceService(secretStore, context);
+    persistenceService.initialize().then(initResult => {
+        if (initResult.ok) {
+            outputChannel.appendLine('CtrlZTree: PersistenceService initialized.');
+        } else {
+            outputChannel.appendLine(`CtrlZTree: PersistenceService not available: ${initResult.error}`);
+        }
+    });
 
     const diffContentRegistry = createDiffContentRegistry();
 
@@ -128,7 +137,7 @@ export function activate(context: vscode.ExtensionContext) {
         let controller = extensionState.historyControllers.get(key);
         if (!controller) {
             const tree = getOrCreateTree(document);
-            controller = new HistoryController({ docId: key, tree, queue: documentQueue });
+            controller = new HistoryController({ docId: key, tree, queue: documentQueue, persistenceService });
             extensionState.historyControllers.set(key, controller);
             outputChannel.appendLine(`CtrlZTree: Created HistoryController for ${key}`);
         }
@@ -178,7 +187,7 @@ export function activate(context: vscode.ExtensionContext) {
         void webviewManager.handleActiveEditorChange(editor);
     });
 
-    const documentCloseSubscription = vscode.workspace.onDidCloseTextDocument(document => {
+    const documentCloseSubscription = vscode.workspace.onDidCloseTextDocument(async document => {
         const key = document.uri.toString();
         const tree = extensionState.historyTrees.get(key);
         if (tree) {
@@ -188,7 +197,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const controller = extensionState.historyControllers.get(key);
         if (controller) {
-            controller.close();
+            await controller.close();
             extensionState.historyControllers.delete(key);
             outputChannel.appendLine(`CtrlZTree: Closed HistoryController for ${key}`);
         }
@@ -212,6 +221,22 @@ export function activate(context: vscode.ExtensionContext) {
             getOrCreateTree(document);
         }
     });
+
+    // W6: Auto-persist timer (flushes dirty controllers to disk every 5 seconds)
+    const persistTimer = setInterval(() => {
+        for (const [key, controller] of extensionState.historyControllers) {
+            if (controller.getNeedsPersist()) {
+                controller.flushToDisk().then(result => {
+                    if (result.ok) {
+                        outputChannel.appendLine(`CtrlZTree: Auto-persisted ${key}`);
+                    }
+                }).catch(err => {
+                    outputChannel.appendLine(`CtrlZTree: Persist error for ${key}: ${err?.message || 'Unknown'}`);
+                });
+            }
+        }
+    }, 5000);
+    extensionState.persistTimer = persistTimer;
 
     context.subscriptions.push(themeChangeSubscription, activeEditorChangeSubscription, documentCloseSubscription, documentOpenSubscription);
 
@@ -353,7 +378,6 @@ export function activate(context: vscode.ExtensionContext) {
 
         const document = editor.document;
         const tree = getOrCreateTree(document);
-        const previousHead = tree.getHead();
         const newHead = tree.peekUndo();
 
         if (!newHead) {
@@ -362,7 +386,7 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        outputChannel.appendLine(`CtrlZTree: Undo peek from ${previousHead} to ${newHead}`);
+        outputChannel.appendLine(`CtrlZTree: Undo peek to ${newHead}`);
 
         // Save current head, temporarily set to target for content resolution
         const savedHead = tree.getHead();
@@ -615,6 +639,25 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+    // Clear persist timer
+    if (extensionState.persistTimer) {
+        clearInterval(extensionState.persistTimer);
+        extensionState.persistTimer = null;
+    }
+
+    // Flush all controllers to disk before shutdown
+    const controllers = Array.from(extensionState.historyControllers.values());
+    for (const controller of controllers) {
+        if (controller.getNeedsPersist()) {
+            try {
+                controller.flushToDisk();
+            } catch {
+                // Best-effort flush on deactivate
+            }
+        }
+    }
+    extensionState.historyControllers.clear();
+
     for (const timeout of extensionState.documentChangeTimeouts.values()) {
         clearTimeout(timeout);
     }

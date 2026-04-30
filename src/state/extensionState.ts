@@ -19,6 +19,7 @@ export interface ExtensionState {
     lastValidEditorUri: string | null;
     lastOpenedDiffEditor: vscode.TextEditor | null;
     editTokens: ApplyEditTokenSet | null;
+    persistTimer: NodeJS.Timeout | null;
 }
 
 export function createExtensionState(): ExtensionState {
@@ -35,6 +36,7 @@ export function createExtensionState(): ExtensionState {
         processingDocuments: new Set<string>(),
         lastValidEditorUri: null,
         lastOpenedDiffEditor: null,
-        editTokens: null
+        editTokens: null,
+        persistTimer: null,
     };
 }

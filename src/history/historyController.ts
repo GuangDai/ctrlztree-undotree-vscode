@@ -4,6 +4,7 @@ import { Projection, project } from './projection';
 import { CtrlZTree } from '../model/ctrlZTree';
 import { DocumentTaskQueue } from '../concurrency/documentTaskQueue';
 import { MemoryContentStore, SnapshotPolicy } from './contentStore';
+import { PersistenceService } from '../security/persistenceService';
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 
@@ -17,6 +18,7 @@ export interface HistoryControllerDeps {
 	queue: DocumentTaskQueue;
 	contentStore?: MemoryContentStore;
 	snapshotPolicy?: SnapshotPolicy;
+	persistenceService?: PersistenceService;
 }
 
 export interface CommitResult {
@@ -34,6 +36,7 @@ export class HistoryController {
 	private queue: DocumentTaskQueue;
 	private contentStore?: MemoryContentStore;
 	private snapshotPolicy?: SnapshotPolicy;
+	private persistenceService?: PersistenceService;
 	private events: HistoryEvent[] = [];
 	private projection: Projection;
 	private nextNodeId: NodeId = 0;
@@ -41,6 +44,7 @@ export class HistoryController {
 	private nextTxId = 0;
 	private hashToNodeId = new Map<string, NodeId>();
 	private nodeIdToHash = new Map<NodeId, string>();
+	private needsPersist = false;
 
 	constructor(deps: HistoryControllerDeps) {
 		this.docId = deps.docId;
@@ -48,6 +52,7 @@ export class HistoryController {
 		this.queue = deps.queue;
 		this.contentStore = deps.contentStore;
 		this.snapshotPolicy = deps.snapshotPolicy;
+		this.persistenceService = deps.persistenceService;
 
 		const rootHash = this.tree.getInternalRootHash();
 		const rootContent = this.tree.getContent(rootHash);
@@ -92,6 +97,7 @@ export class HistoryController {
 		}
 
 		this.projection = project(this.docId, this.events);
+		this.needsPersist = true;
 	}
 
 	async commit(content: string, cursor?: vscode.Position): Promise<CommitResult> {
@@ -145,6 +151,7 @@ export class HistoryController {
 			};
 			this.events.push(editEvent);
 			this.projection = project(this.docId, this.events);
+		this.needsPersist = true;
 			return { hash: newHash };
 		});
 	}
@@ -171,6 +178,7 @@ export class HistoryController {
 				};
 				this.events.push(headMoveEvent);
 				this.projection = project(this.docId, this.events);
+		this.needsPersist = true;
 			}
 			const content = resultHash ? this.tree.getContent(resultHash) : null;
 			return { hash: resultHash, content };
@@ -202,6 +210,7 @@ export class HistoryController {
 				};
 				this.events.push(headMoveEvent);
 				this.projection = project(this.docId, this.events);
+		this.needsPersist = true;
 			}
 			const content = newHash ? this.tree.getContent(newHash) : null;
 			return { hash: newHash, content };
@@ -229,6 +238,7 @@ export class HistoryController {
 				};
 				this.events.push(headMoveEvent);
 				this.projection = project(this.docId, this.events);
+		this.needsPersist = true;
 			}
 			const content = success ? this.tree.getContent(hash) : null;
 			return { success, content };
@@ -255,6 +265,26 @@ export class HistoryController {
 		return this.events;
 	}
 
+	getNeedsPersist(): boolean {
+		return this.needsPersist && this.persistenceService !== undefined;
+	}
+
+	async flushToDisk(): Promise<{ ok: true } | { ok: false; error: string }> {
+		if (!this.needsPersist || !this.persistenceService) {
+			return { ok: true };
+		}
+		const fingerprint = PersistenceService.computeFingerprint(this.docId);
+		const result = await this.persistenceService.saveDocument(
+			fingerprint,
+			this.events,
+			this.projection.lastSeq,
+		);
+		if (result.ok) {
+			this.needsPersist = false;
+		}
+		return result;
+	}
+
 	recordHeadMove(fromHash: string, toHash: string, reason: 'undo' | 'redo' | 'checkout'): void {
 		if (!this.hashToNodeId.has(fromHash)) {
 			this.mapHash(fromHash, this.nextNodeId++);
@@ -275,9 +305,13 @@ export class HistoryController {
 		};
 		this.events.push(headMoveEvent);
 		this.projection = project(this.docId, this.events);
+		this.needsPersist = true;
 	}
 
-	close(): void {
+	async close(): Promise<void> {
+		if (this.needsPersist && this.persistenceService) {
+			await this.flushToDisk();
+		}
 		this.queue.clear(this.docId);
 	}
 

@@ -525,7 +525,7 @@ export function createWebviewManager({
                     vscode.Uri.joinPath(context.extensionUri, 'resources'),
                     vscode.Uri.joinPath(context.extensionUri, 'src', 'webview')
                 ],
-                retainContextWhenHidden: true
+                retainContextWhenHidden: false
             }
         );
         activeVisualizationPanels.set(docUriString, panel);
