@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { NodeId, EventSeq } from './ids';
 import { Projection } from './projection';
 import { MergeEvent } from './events';
@@ -117,7 +118,6 @@ export function executeMerge(
 	resultNodeId: NodeId,
 	baseSeq: EventSeq,
 ): MergeResult {
-	const crypto = require('crypto');
 	const contentHash = crypto.createHash('sha256').update(resultContent, 'utf8').digest('hex');
 
 	const mergeEvent: MergeEvent = {

@@ -1,6 +1,5 @@
-import { UnifiedAiResponse, NodeUpdate, OperationPlanItem } from './types';
+import { NodeUpdate, OperationPlanItem } from './types';
 import { Projection } from '../history/projection';
-import { NodeId, EventSeq } from '../history/ids';
 
 export interface AiValidationResult {
 	valid: boolean;

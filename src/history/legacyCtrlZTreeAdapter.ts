@@ -1,6 +1,6 @@
-import { CtrlZTree, TreeNode } from '../model/ctrlZTree';
+import { CtrlZTree } from '../model/ctrlZTree';
 import { HistoryEvent, InitEvent, EditEvent, HeadMoveEvent } from './events';
-import { NodeId, EventSeq, TxId, ContentHash } from './ids';
+import { NodeId, EventSeq, TxId } from './ids';
 import * as crypto from 'crypto';
 
 export interface MigrationResult {

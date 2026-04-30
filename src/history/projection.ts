@@ -247,7 +247,7 @@ function handleDelete(proj: Projection, e: DeleteEvent): void {
 			proj.deletedNodes.add(id);
 			proj.archivedNodes.delete(id);
 			// Remove children references to deleted nodes
-			for (const [parent, children] of proj.childrenOf) {
+			for (const [, children] of proj.childrenOf) {
 				const idx = children.indexOf(id);
 				if (idx >= 0) {
 					children.splice(idx, 1);
@@ -337,7 +337,7 @@ function addToContentHashIndex(proj: Projection, hash: ContentHash, nodeId: Node
 
 function computeBranchTips(proj: Projection): void {
 	const tips: NodeId[] = [];
-	for (const [id, view] of proj.byId) {
+	for (const [id] of proj.byId) {
 		if (proj.deletedNodes.has(id)) {
 			continue;
 		}
@@ -368,7 +368,7 @@ function validateInvariants(proj: Projection): void {
 	}
 
 	// Every visible non-root node must have a parent
-	for (const [id, view] of proj.byId) {
+	for (const [id] of proj.byId) {
 		if (proj.deletedNodes.has(id)) {
 			continue;
 		}

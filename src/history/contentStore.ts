@@ -1,7 +1,7 @@
 import { NodeId } from './ids';
 import { ContentRef } from './events';
 import { Projection } from './projection';
-import { generateDiff, applyDiff, serializeDiff, deserializeDiff, DiffOperation } from '../lcs';
+import { generateDiff, applyDiff, serializeDiff, deserializeDiff } from '../lcs';
 
 export interface SnapshotPolicy {
 	snapshotEveryNodes: number;
@@ -51,7 +51,6 @@ export class MemoryContentStore {
 			this.clearCacheFor(nodeId);
 		}
 
-		const diff = nextContent.length - parentContent.length;
 		const diffStr = serializeDiff(generateDiff(parentContent, nextContent));
 		const diffBytes = Buffer.byteLength(diffStr, 'utf8');
 

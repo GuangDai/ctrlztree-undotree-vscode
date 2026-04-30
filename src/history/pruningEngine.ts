@@ -1,4 +1,4 @@
-import { NodeId, EventSeq } from './ids';
+import { NodeId } from './ids';
 import { Projection } from './projection';
 
 export interface PrunePlan {

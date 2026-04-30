@@ -6,7 +6,7 @@ import { DIFF_SCHEME, ACTION_TIMEOUT, PAUSE_THRESHOLD } from './constants';
 import { createWebviewManager, WebviewManager } from './webview/webviewManager';
 import { registerDocumentChangeTracking } from './services/changeTracker';
 import { markEditorCleanIfAtInitialSnapshot } from './utils/editorState';
-import { createDiffContentRegistry, DiffContentRegistry } from './ui/diffContentRegistry';
+import { createDiffContentRegistry } from './ui/diffContentRegistry';
 import { clampConfig } from './config/configService';
 import { ApplyEditTokenSet, ApplyEditToken } from './concurrency/applyEditTokens';
 import { applyEditAndVerify, ApplyEditResult } from './utils/editorApply';
@@ -551,7 +551,6 @@ export function activate(context: vscode.ExtensionContext) {
             log.info(`CtrlZTree: Executing merge for ${linearChain.length} nodes on head path`);
 
             // Get content of the last (most recent) node in the chain as the merged result
-            const lastSourceId = linearChain[0]; // linearChain[0] is head/youngest
             const resultContent = controller.getContent();
             // Execute the merge via HistoryController
             const result = controller.executeMergePlan(plan, resultContent);

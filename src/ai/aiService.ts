@@ -1,11 +1,10 @@
 import { ProviderRegistry, ProviderName } from './providers/registry';
-import { RequestScheduler, SchedulerConfig, DEFAULT_SCHEDULER_CONFIG } from '../concurrency/requestScheduler';
+import { RequestScheduler, SchedulerConfig } from '../concurrency/requestScheduler';
 import { SecretStore } from '../security/secretStore';
 import { ClampedAiConfig } from '../config/configService';
 import { UnifiedAiRequest, UnifiedAiResponse, AiProviderError } from './types';
 import { redactSensitiveData } from './redactor';
 import { Logger } from '../utils/logger';
-import { Projection } from '../history/projection';
 import { validateAiResponse } from './operationPlanner';
 
 export interface AiServiceDeps {

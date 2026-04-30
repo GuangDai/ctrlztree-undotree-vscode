@@ -19,7 +19,7 @@ export function generateDeletePlan(
 	mode: DeleteMode = 'soft'
 ): DeletePlan {
 	const warnings: string[] = [];
-	const { byId, parentOf, childrenOf, headId, rootId, protectedNodes, archivedNodes } = projection;
+	const { byId, parentOf, childrenOf, headId, rootId, protectedNodes } = projection;
 
 	if (targetIds.length === 0) {
 		return { targetIds, mode, estimatedBytesFreed: 0, warnings: ['No target IDs provided'], valid: false, requiresConfirmation: false };
