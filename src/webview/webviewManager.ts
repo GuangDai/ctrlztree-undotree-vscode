@@ -398,25 +398,40 @@ export function createWebviewManager({
 
         panelToFullHashMap.set(panel, currentFullHashMap);
 
-        // W7: Compute incremental graph diff for future patch protocol
+        // W7: Use incremental graph protocol (graphInit on first update, graphPatch thereafter)
         const gs = getOrCreateGraphState(panel);
         const diff = computeGraphDiff(gs, nodesArrayForVis, edgesArrayForVis, currentHeadShortHash);
-		if (gs.initialized && (diff.addedNodes.length > 0 || diff.removedNodes.length > 0 || diff.addedEdges.length > 0 || diff.removedEdges.length > 0)) {
-            log.info(
-                `CtrlZTree: Graph diff [+${diff.addedNodes.length} -${diff.removedNodes.length} ~${diff.updatedNodes.length}] ` +
-                `edges [+${diff.addedEdges.length} -${diff.removedEdges.length}]`
-            );
+
+        let success: boolean;
+        if (!gs.initialized) {
+            // First update: send full graphInit
+            success = safePostMessage(panel, {
+                command: 'graphInit',
+                protocolVersion: 2,
+                nodes: nodesArrayForVis,
+                edges: edgesArrayForVis,
+                headId: currentHeadShortHash
+            });
+            gs.initialized = true;
+        } else if (diff.addedNodes.length > 0 || diff.removedNodes.length > 0 ||
+                   diff.updatedNodes.length > 0 || diff.addedEdges.length > 0 ||
+                   diff.removedEdges.length > 0) {
+            // Incremental update: send graphPatch
+            success = safePostMessage(panel, {
+                command: 'graphPatch',
+                added: diff.addedNodes,
+                removed: diff.removedNodes,
+                updated: diff.updatedNodes,
+                addedEdges: diff.addedEdges,
+                removedEdges: diff.removedEdges,
+                headId: currentHeadShortHash
+            });
+        } else {
+            // No changes to send
+            success = true;
         }
 
-        const success = safePostMessage(panel, {
-            command: 'updateTree',
-            nodes: nodesArrayForVis,
-            edges: edgesArrayForVis,
-            headShortHash: currentHeadShortHash
-        });
-
-		if (success) {
-		} else {
+        if (!success) {
             log.info(`CtrlZTree: Failed to post updates to webview for ${documentUriString} - panel may be disposed`);
         }
     }

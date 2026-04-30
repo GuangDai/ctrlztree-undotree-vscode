@@ -303,33 +303,60 @@
         window.addEventListener('message', event => {
             const message = event.data;
             switch (message.command) {
-                case 'updateTree':
-                    // Validate payload before processing
+                case 'graphInit':
+                    // Full graph initialization
                     if (!Array.isArray(message.nodes) || !Array.isArray(message.edges)) {
                         break;
                     }
                     nodes.clear();
                     edges.clear();
                     nodes.add(message.nodes);
-                    // Clear any cached hover styles since node identities/styles changed
+                    try { originalNodeStyles.clear(); } catch (e) { /* ignore */ }
+                    edges.add(message.edges);
+                    currentHeadNodeId = (typeof message.headId === 'string') ? message.headId : null;
+                    try { applyHeadStyle(currentHeadNodeId); focusHeadNode(currentHeadNodeId); } catch (e) { /* ignore */ }
+                    break;
+
+                case 'graphPatch':
+                    // Incremental graph update
+                    if (Array.isArray(message.removed) && message.removed.length > 0) {
+                        nodes.remove(message.removed);
+                        edges.remove(message.removed.map(function (id) { return { id: id }; }));
+                    }
+                    if (Array.isArray(message.added) && message.added.length > 0) {
+                        nodes.add(message.added);
+                    }
+                    if (Array.isArray(message.updated) && message.updated.length > 0) {
+                        nodes.update(message.updated);
+                    }
+                    if (Array.isArray(message.addedEdges) && message.addedEdges.length > 0) {
+                        edges.add(message.addedEdges);
+                    }
+                    if (Array.isArray(message.removedEdges) && message.removedEdges.length > 0) {
+                        edges.remove(message.removedEdges);
+                    }
+                    try { originalNodeStyles.clear(); } catch (e) { /* ignore */ }
+                    if (typeof message.headId === 'string') {
+                        currentHeadNodeId = message.headId;
+                        try { applyHeadStyle(currentHeadNodeId); focusHeadNode(currentHeadNodeId); } catch (e) { /* ignore */ }
+                    }
+                    break;
+
+                case 'updateTree':
+                    // Legacy full update (backward compat)
+                    if (!Array.isArray(message.nodes) || !Array.isArray(message.edges)) {
+                        break;
+                    }
+                    nodes.clear();
+                    edges.clear();
+                    nodes.add(message.nodes);
                     try { originalNodeStyles.clear(); } catch (e) { /* ignore */ }
                     edges.add(message.edges);
                     currentHeadNodeId = (typeof message.headShortHash === 'string') ? message.headShortHash : null;
-                    // Apply visual style to the current head node (and reset others)
-                    try {
-                        if (currentHeadNodeId) {
-                            applyHeadStyle(currentHeadNodeId);
-                            focusHeadNode(currentHeadNodeId);
-                        } else {
-                            applyHeadStyle(null);
-                            focusHeadNode(null);
-                        }
-                    } catch (e) {
-                        // ignore styling errors
-                    }
+                    try { applyHeadStyle(currentHeadNodeId); focusHeadNode(currentHeadNodeId); } catch (e) { /* ignore */ }
                     break;
+
                 case 'updateTheme':
-                    // Theme update handled through CSS variables
                     break;
             }
         });
