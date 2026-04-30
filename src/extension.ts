@@ -222,14 +222,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('ctrlztree.history.navigateToNode', async (item?: { nodeHash: string }) => {
-            if (!item?.nodeHash) return;
+            if (!item?.nodeHash) {return;}
             const editor = vscode.window.activeTextEditor;
-            if (!editor || !isTrackableDocument(editor.document)) return;
+            if (!editor || !isTrackableDocument(editor.document)) {return;}
 
             const document = editor.document;
             const tree = getOrCreateTree(document);
             const savedHead = tree.getHead();
-            if (!tree.setHead(item.nodeHash)) return;
+            if (!tree.setHead(item.nodeHash)) {return;}
 
             const result = await applyTreeStateToDocument(document, tree, 'checkout', editTokens);
             if (!result.ok && savedHead) {
@@ -240,15 +240,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('ctrlztree.history.diffWithParent', async (item?: { nodeHash: string }) => {
-            if (!item?.nodeHash) return;
+            if (!item?.nodeHash) {return;}
             const editor = vscode.window.activeTextEditor;
-            if (!editor || !isTrackableDocument(editor.document)) return;
+            if (!editor || !isTrackableDocument(editor.document)) {return;}
 
             const document = editor.document;
             const tree = getOrCreateTree(document);
             const allNodes = tree.getAllNodes();
             const node = allNodes.get(item.nodeHash);
-            if (!node || !node.parent) return;
+            if (!node || !node.parent) {return;}
 
             const parentContent = tree.getContent(node.parent);
             const currentContent = tree.getContent(item.nodeHash);

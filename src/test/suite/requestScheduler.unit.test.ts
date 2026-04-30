@@ -197,7 +197,7 @@ suite('RequestScheduler', () => {
 					while (!signal.aborted && Date.now() - start < 500) {
 						await delay(10);
 					}
-					if (signal.aborted) throw new Error('Aborted');
+					if (signal.aborted) {throw new Error('Aborted');}
 					return 'done';
 				},
 			});

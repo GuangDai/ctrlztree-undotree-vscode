@@ -167,16 +167,16 @@ export class CtrlZTree {
     }
 
     findLatestNonEmptyState(): string | null {
-        if (!this.head) return null;
+        if (!this.head) {return null;}
 
         const currentContent = this.getContent(this.head);
-        if (currentContent.trim() !== '') return this.head;
+        if (currentContent.trim() !== '') {return this.head;}
 
         let latestNonEmptyHash: string | null = null;
         let latestTimestamp = 0;
 
         for (const [hash, node] of this.nodes) {
-            if (hash === this.trueEmptyRootHash) continue;
+            if (hash === this.trueEmptyRootHash) {continue;}
 
             const content = this.getContent(hash);
             if (content.trim() !== '' && node.timestamp > latestTimestamp) {
@@ -198,7 +198,7 @@ export class CtrlZTree {
     }
 
     y(): string | string[] {
-        if (!this.head) return [];
+        if (!this.head) {return [];}
 
         const currentNode = this.nodes.get(this.head)!;
         if (currentNode.children.length === 1) {
@@ -209,7 +209,7 @@ export class CtrlZTree {
     }
 
     peekRedoChildren(): string[] {
-        if (!this.head) return [];
+        if (!this.head) {return [];}
 
         const currentNode = this.nodes.get(this.head)!;
         return currentNode.children;
@@ -260,7 +260,7 @@ export class CtrlZTree {
     }
 
     public pruneToMaxNodes(maxNodes: number): void {
-        if (this.nodes.size <= maxNodes) return;
+        if (this.nodes.size <= maxNodes) {return;}
 
         const nodesToKeep = new Set<string>();
 
@@ -268,7 +268,7 @@ export class CtrlZTree {
         while (currentHash) {
             nodesToKeep.add(currentHash);
             const node = this.nodes.get(currentHash);
-            if (!node || node.parent === null) break;
+            if (!node || node.parent === null) {break;}
             currentHash = node.parent;
         }
 
@@ -277,7 +277,7 @@ export class CtrlZTree {
             const sortedByTime = allNodes.sort((a, b) => b[1].timestamp - a[1].timestamp);
 
             for (const [hash] of sortedByTime) {
-                if (nodesToKeep.size >= maxNodes) break;
+                if (nodesToKeep.size >= maxNodes) {break;}
                 nodesToKeep.add(hash);
             }
         }

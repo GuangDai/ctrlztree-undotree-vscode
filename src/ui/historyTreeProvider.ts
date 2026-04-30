@@ -111,13 +111,13 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 	}
 
 	getParent?(element: HistoryTreeItem): vscode.ProviderResult<HistoryTreeItem> {
-		if (!this.tree) return null;
+		if (!this.tree) {return null;}
 		const allNodes = this.tree.getAllNodes();
 		const node = allNodes.get(element.nodeHash);
-		if (!node?.parent) return null;
+		if (!node?.parent) {return null;}
 
 		const parentNode = allNodes.get(node.parent);
-		if (!parentNode) return null;
+		if (!parentNode) {return null;}
 
 		const content = this.tree.getContent(node.parent);
 		const preview = content.length > 50 ? content.substring(0, 47) + '...' : content;

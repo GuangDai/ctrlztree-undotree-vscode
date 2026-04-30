@@ -60,7 +60,7 @@ export class RequestScheduler {
 
 	cancelByDoc(docId: string, reason: string): void {
 		const controllers = this.controllers.get(docId);
-		if (!controllers) return;
+		if (!controllers) {return;}
 
 		for (const ctrl of controllers) {
 			try { ctrl.abort(reason); } catch { /* ignore already-aborted */ }
@@ -139,8 +139,8 @@ export class RequestScheduler {
 	}
 
 	private drainQueue(): void {
-		if (this.queue.length === 0) return;
-		if (this.concurrent >= this.config.maxConcurrentRequests) return;
+		if (this.queue.length === 0) {return;}
+		if (this.concurrent >= this.config.maxConcurrentRequests) {return;}
 
 		const next = this.queue.shift()!;
 		this.executeRequest(next.req, 0)
@@ -159,7 +159,7 @@ export class RequestScheduler {
 
 	private removeController(docId: string, ctrl: AbortController): void {
 		const set = this.controllers.get(docId);
-		if (!set) return;
+		if (!set) {return;}
 		set.delete(ctrl);
 		if (set.size === 0) {
 			this.controllers.delete(docId);

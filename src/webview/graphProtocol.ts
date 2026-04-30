@@ -64,7 +64,7 @@ export interface UpdateTreeMessage {
 // --- Protocol helpers ---
 
 export function isGraphOutMessage(payload: unknown): payload is GraphOutMessage {
-	if (typeof payload !== 'object' || payload === null) return false;
+	if (typeof payload !== 'object' || payload === null) {return false;}
 	const msg = payload as Record<string, unknown>;
 	switch (msg.command) {
 		case 'graphInit':

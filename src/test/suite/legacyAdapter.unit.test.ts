@@ -52,7 +52,7 @@ suite('Legacy CtrlZTree Adapter', () => {
 
 		// All non-root nodes should have a parent
 		for (const [id, view] of proj.byId) {
-			if (id === proj.rootId) continue;
+			if (id === proj.rootId) {continue;}
 			const parent = proj.parentOf.get(id);
 			assert.ok(parent !== undefined && parent !== null, `Node ${id} has no parent`);
 		}
