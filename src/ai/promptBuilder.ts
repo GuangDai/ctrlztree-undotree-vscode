@@ -1,5 +1,6 @@
 import { AiTask, JsonSchema, UnifiedAiRequest } from './types';
 import { NodeId, EventSeq } from '../history/ids';
+import { redactSensitiveData } from './redactor';
 
 export interface PromptContext {
 	task: AiTask;
@@ -41,7 +42,7 @@ const RESPONSE_SCHEMA: JsonSchema = {
 			items: {
 				type: 'object',
 				properties: {
-					operation: { type: 'string', enum: ['archive', 'delete'] },
+					operation: { type: 'string', enum: ['archive', 'delete', 'merge', 'prune'] },
 					targetIds: { type: 'array', items: { type: 'number' } },
 					reason: { type: 'string' },
 					risk: { type: 'string', enum: ['low', 'medium', 'high'] },
@@ -72,7 +73,7 @@ function buildSystemPrompt(task: AiTask): string {
 function buildUserMessage(ctx: PromptContext): string {
 	const parts: string[] = [];
 
-	parts.push(`File: ${ctx.filePath}`);
+	parts.push(`File: ${safeRedact(ctx.filePath)}`);
 	parts.push(`Language: ${ctx.fileLanguage}`);
 	parts.push(`Current head node: #${ctx.headNodeId}`);
 	parts.push(`Document event sequence: ${ctx.baseSeq}`);
@@ -80,19 +81,19 @@ function buildUserMessage(ctx: PromptContext): string {
 
 	switch (ctx.task) {
 		case 'rename_node':
-			parts.push(`Node #${ctx.nodeId} diff summary: ${ctx.diffSummary}`);
+			parts.push(`Node #${ctx.nodeId} diff summary: ${safeRedact(ctx.diffSummary)}`);
 			if (ctx.parentDiffSummary) {
-				parts.push(`Parent node diff: ${ctx.parentDiffSummary}`);
+				parts.push(`Parent node diff: ${safeRedact(ctx.parentDiffSummary)}`);
 			}
 			if (ctx.nearbyNames && ctx.nearbyNames.length > 0) {
-				parts.push(`Nearby node names for context: ${ctx.nearbyNames.join(', ')}`);
+				parts.push(`Nearby node names for context: ${safeRedact(ctx.nearbyNames.join(', '))}`);
 			}
 			parts.push('');
 			parts.push('Suggest a short name for this node.');
 			break;
 
 		case 'summarize_node':
-			parts.push(`Node #${ctx.nodeId} diff summary: ${ctx.diffSummary}`);
+			parts.push(`Node #${ctx.nodeId} diff summary: ${safeRedact(ctx.diffSummary)}`);
 			parts.push(`Age: ${ctx.nodeAgeMinutes ?? 'unknown'} minutes ago`);
 			parts.push('');
 			parts.push('Write a one-sentence summary of this change.');
@@ -102,7 +103,7 @@ function buildUserMessage(ctx: PromptContext): string {
 			parts.push(`Branch with ${ctx.nodeIds?.length ?? 0} nodes:`);
 			if (ctx.nodeIds && ctx.siblingSummaries) {
 				for (let i = 0; i < Math.min(ctx.nodeIds.length, ctx.siblingSummaries.length); i++) {
-					parts.push(`  Node #${ctx.nodeIds[i]}: ${ctx.siblingSummaries[i]}`);
+					parts.push(`  Node #${ctx.nodeIds[i]}: ${safeRedact(ctx.siblingSummaries[i])}`);
 				}
 			}
 			parts.push('');
@@ -111,10 +112,10 @@ function buildUserMessage(ctx: PromptContext): string {
 
 		case 'propose_merge':
 			parts.push('Linear chain candidates for merge:');
-			parts.push(`  Parent diff: ${ctx.parentDiffSummary || 'none'}`);
+			parts.push(`  Parent diff: ${ctx.parentDiffSummary ? safeRedact(ctx.parentDiffSummary) : 'none'}`);
 			if (ctx.siblingSummaries) {
 				for (const s of ctx.siblingSummaries) {
-					parts.push(`  ${s}`);
+					parts.push(`  ${safeRedact(s)}`);
 				}
 			}
 			parts.push('');
@@ -126,14 +127,14 @@ function buildUserMessage(ctx: PromptContext): string {
 			parts.push(`  Depth: ${ctx.branchDepth ?? 0}`);
 			parts.push(`  Siblings: ${ctx.siblingCount ?? 0}`);
 			parts.push(`  Age: ${ctx.nodeAgeMinutes ?? 'unknown'} min`);
-			parts.push(`  Diff: ${ctx.diffSummary}`);
+			parts.push(`  Diff: ${safeRedact(ctx.diffSummary)}`);
 			parts.push('');
 			parts.push('Identify nodes that can be archived to save space. Do NOT delete the head node.');
 			break;
 
 		case 'propose_delete':
 			parts.push('Node metadata for deletion analysis:');
-			parts.push(`  Diff: ${ctx.diffSummary}`);
+			parts.push(`  Diff: ${safeRedact(ctx.diffSummary)}`);
 			parts.push(`  Branch depth: ${ctx.branchDepth ?? 0}`);
 			parts.push('');
 			parts.push('Suggest safe deletion candidates. Never delete head/protected/root nodes.');
@@ -141,6 +142,10 @@ function buildUserMessage(ctx: PromptContext): string {
 	}
 
 	return parts.join('\n');
+}
+
+function safeRedact(text: string): string {
+	return redactSensitiveData(text).redacted;
 }
 
 export function buildPrompt(ctx: PromptContext): {

@@ -12,6 +12,7 @@ interface DocManifest {
 	lastEventSeq: number;
 	createdAt: number;
 	updatedAt: number;
+	dataHash?: string;
 }
 
 interface PersistConfig {
@@ -50,6 +51,7 @@ export class PersistenceService {
 
 		try {
 			const ndjson = events.map(e => JSON.stringify(e)).join('\n') + '\n';
+			const dataHash = crypto.createHash('sha256').update(ndjson, 'utf8').digest('hex');
 
 			const encryptedData = await this.persistenceStore.encrypt(ndjson);
 
@@ -60,6 +62,7 @@ export class PersistenceService {
 				lastEventSeq: lastSeq,
 				createdAt: Date.now(),
 				updatedAt: Date.now(),
+				dataHash,
 			};
 			const encryptedManifest = await this.persistenceStore.encrypt(JSON.stringify(manifest));
 
@@ -69,8 +72,8 @@ export class PersistenceService {
 			const dataFile = vscode.Uri.joinPath(docDir, 'events.ndjson.enc');
 			const manifestFile = vscode.Uri.joinPath(docDir, 'manifest.json.enc');
 
-			await vscode.workspace.fs.writeFile(dataFile, encryptedData);
 			await vscode.workspace.fs.writeFile(manifestFile, encryptedManifest);
+			await vscode.workspace.fs.writeFile(dataFile, encryptedData);
 
 			return { ok: true };
 		} catch (e: any) {
@@ -103,14 +106,18 @@ export class PersistenceService {
 
 			const events: HistoryEvent[] = [];
 			const lines = ndjson.split('\n');
-			for (const line of lines) {
-				const trimmed = line.trim();
+			for (let i = 0; i < lines.length; i++) {
+				const trimmed = lines[i].trim();
 				if (trimmed.length === 0) { continue; }
 				try {
 					events.push(JSON.parse(trimmed));
 				} catch {
-					// Skip malformed event lines
+					return { ok: false, error: `Malformed event on line ${i + 1}: data may be corrupt` };
 				}
+			}
+
+			if (events.length !== manifest.eventCount) {
+				return { ok: false, error: `Event count mismatch: expected ${manifest.eventCount}, got ${events.length}` };
 			}
 
 			return { ok: true, events, lastSeq: manifest.lastEventSeq };

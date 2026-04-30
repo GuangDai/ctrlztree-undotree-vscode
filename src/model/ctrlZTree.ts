@@ -17,6 +17,7 @@ export class CtrlZTree {
     private readonly trueEmptyRootContent: string = '';
     private readonly trueEmptyRootHash: string;
     private initialSnapshotHash?: string;
+    private disambiguatorCounter = 0;
 
     constructor(initialDocumentContent: string) {
         this.nodes = new Map<string, TreeNode>();
@@ -100,14 +101,18 @@ export class CtrlZTree {
 
         let newHash = this.calculateHash(content);
 
-        // Prevent Hash Map Overwriting (Cycle Prevention)
+        // Content hash collision: same content under different parent.
+        // V4: ContentHash = sha256(content) is stable; disambiguate via suffix, not salt.
         if (this.nodes.has(newHash)) {
             const existingNode = this.nodes.get(newHash)!;
             if (existingNode.parent === this.head) {
+                // Same content, same parent → deduplicate
                 this.head = newHash;
                 return newHash;
             }
-            newHash = this.calculateHash(content, Date.now().toString() + Math.random().toString());
+            // Same content, different parent → disambiguate with sequential suffix
+            this.disambiguatorCounter++;
+            newHash = `${newHash}#${this.disambiguatorCounter}`;
         }
 
         const diffOps = generateDiff(currentContent, content);

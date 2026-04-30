@@ -34,6 +34,16 @@ function isTrackableDocument(document: vscode.TextDocument | undefined): documen
     return !!document && (document.uri.scheme === 'file' || document.uri.scheme === 'untitled');
 }
 
+function maxNodeTimestamp(tree: CtrlZTree): number {
+    let max = 0;
+    for (const node of tree.getAllNodes().values()) {
+        if (node.timestamp > max) {
+            max = node.timestamp;
+        }
+    }
+    return max;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel('CtrlZTree');
     context.subscriptions.push(outputChannel);
@@ -43,6 +53,17 @@ export function activate(context: vscode.ExtensionContext) {
     log.setLevel(logLevel);
     log.info('CtrlZTree: Extension activating...');
 
+    // Dynamic log level change listener
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('ctrlztree.logging.level')) {
+                const newLevel = vscode.workspace.getConfiguration('ctrlztree').get<string>('logging.level', 'info') as LogLevel;
+                log.setLevel(newLevel);
+                log.info(`CtrlZTree: Log level changed to ${newLevel}`);
+            }
+        })
+    );
+
     const editTokens = new ApplyEditTokenSet();
     extensionState.editTokens = editTokens;
 
@@ -50,14 +71,42 @@ export function activate(context: vscode.ExtensionContext) {
     const secretStore = createVSCodeSecretStore(context.secrets);
 
     // W6: PersistenceService (encrypted history persistence)
+    // Persistence mode: off (default), ask (prompt user), on (auto)
+    const persistenceMode = vscode.workspace.getConfiguration('ctrlztree').get<string>('persistence.mode', 'off') as 'off' | 'ask' | 'on';
     const persistenceService = new PersistenceService(secretStore, context);
-    persistenceService.initialize().then(initResult => {
-        if (initResult.ok) {
-            log.info('CtrlZTree: PersistenceService initialized.');
-        } else {
-            log.warn(`CtrlZTree: PersistenceService not available: ${initResult.error}`);
-        }
-    });
+    let persistenceActive = false;
+
+    if (persistenceMode === 'off') {
+        log.info('CtrlZTree: Persistence disabled (mode=off).');
+    } else if (persistenceMode === 'on') {
+        persistenceService.initialize().then(initResult => {
+            if (initResult.ok) {
+                persistenceActive = true;
+                log.info('CtrlZTree: PersistenceService initialized (mode=on).');
+            } else {
+                log.warn(`CtrlZTree: PersistenceService not available: ${initResult.error}`);
+            }
+        });
+    } else if (persistenceMode === 'ask') {
+        persistenceService.initialize().then(initResult => {
+            if (initResult.ok) {
+                // Prompt user for consent before enabling persistence
+                vscode.window.showInformationMessage(
+                    'CtrlZTree can save your edit history to disk (encrypted). Enable history persistence?',
+                    'Enable', 'Not Now'
+                ).then(choice => {
+                    if (choice === 'Enable') {
+                        persistenceActive = true;
+                        log.info('CtrlZTree: User enabled history persistence.');
+                    } else {
+                        log.info('CtrlZTree: User declined history persistence.');
+                    }
+                });
+            } else {
+                log.warn(`CtrlZTree: PersistenceService not available: ${initResult.error}`);
+            }
+        });
+    }
 
     const diffContentRegistry = createDiffContentRegistry();
 
@@ -119,10 +168,8 @@ export function activate(context: vscode.ExtensionContext) {
                 .sort((a, b) => {
                     const treeA = a[1];
                     const treeB = b[1];
-                    const nodesA = treeA.getAllNodes();
-                    const nodesB = treeB.getAllNodes();
-                    const timeA = Math.max(...Array.from(nodesA.values()).map(n => n.timestamp));
-                    const timeB = Math.max(...Array.from(nodesB.values()).map(n => n.timestamp));
+                    const timeA = maxNodeTimestamp(treeA);
+                    const timeB = maxNodeTimestamp(treeB);
                     return timeA - timeB; // Oldest first
                 })
                 .slice(0, extensionState.historyTrees.size - config.maxTrackedDocuments);
@@ -150,13 +197,46 @@ export function activate(context: vscode.ExtensionContext) {
         return controller;
     };
 
+    async function navigateToNode(docUri: string, hash: string): Promise<{ ok: boolean }> {
+        const controller = extensionState.historyControllers.get(docUri);
+        if (!controller) {
+            // Fallback: no controller, use tree directly
+            const tree = extensionState.historyTrees.get(docUri);
+            if (!tree) { return { ok: false }; }
+            const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === docUri);
+            if (!doc) { return { ok: false }; }
+            const savedHead = tree.getHead();
+            if (!tree.setHead(hash)) { return { ok: false }; }
+            const token = editTokens.begin(docUri, 'navigate');
+            try {
+                const content = tree.getContent();
+                const result = await applyEditAndVerify(doc, content);
+                if (!result.ok && savedHead) { tree.setHead(savedHead); }
+                return { ok: result.ok };
+            } finally {
+                editTokens.end(token);
+            }
+        }
+        const result = await controller.checkout(hash);
+        return { ok: result.success };
+    }
+
     const webviewManager = createWebviewManager({
         context,
         outputChannel,
         state: extensionState,
         getOrCreateTree,
         editTokens,
-        diffContentRegistry
+        diffContentRegistry,
+        onHistoryReset: (docUri: string) => {
+            const ctrl = extensionState.historyControllers.get(docUri);
+            if (ctrl) {
+                ctrl.close().catch(() => { /* best effort */ });
+                extensionState.historyControllers.delete(docUri);
+                log.info(`CtrlZTree: Closed controller for reset doc ${docUri}`);
+            }
+        },
+        navigateToNode,
     });
 
     // W5: TreeView provider (created early so changeTracker can refresh it)
@@ -191,6 +271,13 @@ export function activate(context: vscode.ExtensionContext) {
 
     const activeEditorChangeSubscription = vscode.window.onDidChangeActiveTextEditor(editor => {
         void webviewManager.handleActiveEditorChange(editor);
+        // Also update TreeView
+        if (editor && isTrackableDocument(editor.document)) {
+            const tree = getOrCreateTree(editor.document);
+            historyTreeProvider.setTree(tree, editor.document.uri.toString());
+        } else {
+            historyTreeProvider.clear();
+        }
     });
 
     const documentCloseSubscription = vscode.workspace.onDidCloseTextDocument(async document => {
@@ -229,7 +316,9 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     // W6: Auto-persist timer (flushes dirty controllers to disk every 5 seconds)
+    // Only active when persistence is enabled (mode=on or user approved ask)
     const persistTimer = setInterval(() => {
+        if (!persistenceActive) { return; }
         for (const [key, controller] of extensionState.historyControllers) {
             if (controller.getNeedsPersist()) {
                 controller.flushToDisk().then(result => {
@@ -257,18 +346,6 @@ export function activate(context: vscode.ExtensionContext) {
     if (vscode.window.activeTextEditor) {
         void webviewManager.handleActiveEditorChange(vscode.window.activeTextEditor);
     }
-
-    // Update TreeView when active editor changes
-    context.subscriptions.push(
-        vscode.window.onDidChangeActiveTextEditor(editor => {
-            if (editor && isTrackableDocument(editor.document)) {
-                const tree = getOrCreateTree(editor.document);
-                historyTreeProvider.setTree(tree, editor.document.uri.toString());
-            } else {
-                historyTreeProvider.clear();
-            }
-        })
-    );
 
     // Initialize TreeView for current editor
     if (vscode.window.activeTextEditor && isTrackableDocument(vscode.window.activeTextEditor.document)) {
@@ -422,7 +499,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     const undoCommand = vscode.commands.registerCommand('ctrlztree.undo', async () => {
         const editor = vscode.window.activeTextEditor;
-        
+
         if (!editor || !isTrackableDocument(editor.document)) {
             await vscode.commands.executeCommand('undo');
             return;
@@ -430,38 +507,34 @@ export function activate(context: vscode.ExtensionContext) {
 
         const document = editor.document;
         const tree = getOrCreateTree(document);
-        const newHead = tree.peekUndo();
+        const controller = getOrCreateController(document);
 
-        if (!newHead) {
+        const savedHead = tree.getHead();
+        const navResult = await controller.undo();
+        if (!navResult.hash || !navResult.content) {
             log.debug('CtrlZTree: No more undo history.');
             vscode.window.showInformationMessage('CtrlZTree: No more undo history.');
             return;
         }
 
-        log.debug(`CtrlZTree: Undo peek to ${newHead}`);
-
-        // Save current head, temporarily set to target for content resolution
-        const savedHead = tree.getHead();
-        tree.setHead(newHead);
         const result = await applyTreeStateToDocument(document, tree, 'undo', editTokens);
-
-        if (result.ok) {
-            await markEditorCleanIfAtInitialSnapshot(tree, document, { outputChannel });
-            updatePanelForDocument(tree, document.uri.toString(), webviewManager);
-            const controller = getOrCreateController(document);
-            controller.recordHeadMove(savedHead ?? '', tree.getHead()!, 'undo');
-        } else {
-            // Rollback head on failure
+        if (!result.ok) {
+            // Rollback: set head back to saved
             if (savedHead) {
                 tree.setHead(savedHead);
+                // Record the rollback so projection stays consistent
+                controller.recordHeadMove(tree.getHead()!, savedHead, 'undo');
             }
+            return;
         }
+
+        await markEditorCleanIfAtInitialSnapshot(tree, document, { outputChannel });
+        updatePanelForDocument(tree, document.uri.toString(), webviewManager);
     });
 
     const redoCommand = vscode.commands.registerCommand('ctrlztree.redo', async () => {
         const editor = vscode.window.activeTextEditor;
-        
-        // Pass through to native redo if no editor or untrackable document
+
         if (!editor || !isTrackableDocument(editor.document)) {
             await vscode.commands.executeCommand('redo');
             return;
@@ -469,6 +542,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const document = editor.document;
         const tree = getOrCreateTree(document);
+        const controller = getOrCreateController(document);
         const children = tree.peekRedoChildren();
 
         if (children.length === 0) {
@@ -477,19 +551,28 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
+        // Single branch: use controller.redo() for consistent event logging
         if (children.length === 1) {
             const savedHead = tree.getHead();
-            const result = await applyRedoBranch(tree, children[0], document, webviewManager, editTokens);
-            if (result.ok) {
-                const controller = getOrCreateController(document);
-                controller.recordHeadMove(savedHead ?? '', children[0], 'redo');
+            const navResult = await controller.redo(children[0]);
+            if (!navResult.hash || !navResult.content) {
+                log.error('CtrlZTree: Redo returned no content.');
+                return;
             }
+            const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens);
             if (!result.ok) {
-                log.error(`CtrlZTree: Redo apply failed: ${result.error}`);
+                if (savedHead) {
+                    tree.setHead(savedHead);
+                    controller.recordHeadMove(tree.getHead()!, savedHead, 'redo');
+                }
+                return;
             }
+            await markEditorCleanIfAtInitialSnapshot(tree, document);
+            updatePanelForDocument(tree, document.uri.toString(), webviewManager);
             return;
         }
 
+        // Multi-branch: user must choose
         const currentContent = tree.getContent();
         const items = children.map(hash => {
             const branchContent = tree.getContent(hash);
@@ -505,19 +588,24 @@ export function activate(context: vscode.ExtensionContext) {
             placeHolder: 'Select branch to restore'
         });
 
-        if (!selected) {
-            return;
-        }
+        if (!selected) { return; }
 
         const savedHead = tree.getHead();
-        const result = await applyRedoBranch(tree, selected.hash, document, webviewManager, editTokens);
-        if (result.ok) {
-            const controller = getOrCreateController(document);
-            controller.recordHeadMove(savedHead ?? '', selected.hash, 'redo');
+        const navResult = await controller.redo(selected.hash);
+        if (!navResult.hash || !navResult.content) {
+            log.error('CtrlZTree: Redo returned no content.');
+            return;
         }
+        const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens);
         if (!result.ok) {
-            log.error(`CtrlZTree: Redo apply failed: ${result.error}`);
+            if (savedHead) {
+                tree.setHead(savedHead);
+                controller.recordHeadMove(tree.getHead()!, savedHead, 'redo');
+            }
+            return;
         }
+        await markEditorCleanIfAtInitialSnapshot(tree, document);
+        updatePanelForDocument(tree, document.uri.toString(), webviewManager);
     });
 
     async function resolveDocumentForVisualization(preferredDocument?: vscode.TextDocument): Promise<vscode.TextDocument | undefined> {
@@ -690,7 +778,7 @@ export function activate(context: vscode.ExtensionContext) {
     log.info('CtrlZTree: Extension activation completed successfully.');
 }
 
-export function deactivate() {
+export async function deactivate() {
     // Clear persist timer
     if (extensionState.persistTimer) {
         clearInterval(extensionState.persistTimer);
@@ -699,14 +787,20 @@ export function deactivate() {
 
     // Flush all controllers to disk before shutdown
     const controllers = Array.from(extensionState.historyControllers.values());
+    const flushes: Promise<void>[] = [];
     for (const controller of controllers) {
         if (controller.getNeedsPersist()) {
-            try {
-                controller.flushToDisk();
-            } catch {
-                // Best-effort flush on deactivate
-            }
+            flushes.push(
+                controller.flushToDisk()
+                    .then(() => {})
+                    .catch(() => {}) // Best-effort flush on deactivate
+            );
         }
+    }
+    // Wait for all flushes with a hard timeout of 3 seconds
+    if (flushes.length > 0) {
+        const timeout = new Promise<void>(resolve => setTimeout(resolve, 3000));
+        await Promise.race([Promise.allSettled(flushes), timeout]);
     }
     extensionState.historyControllers.clear();
 
@@ -765,25 +859,6 @@ async function applyTreeStateToDocument(
     } finally {
         editTokens.end(token);
     }
-}
-
-async function applyRedoBranch(
-    tree: CtrlZTree,
-    targetHash: string,
-    document: vscode.TextDocument,
-    webviewManager: WebviewManager,
-    editTokens: ApplyEditTokenSet
-): Promise<ApplyEditResult> {
-    const savedHead = tree.getHead();
-    tree.setHead(targetHash);
-    const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens);
-    if (result.ok) {
-        await markEditorCleanIfAtInitialSnapshot(tree, document);
-        updatePanelForDocument(tree, document.uri.toString(), webviewManager);
-    } else if (savedHead) {
-        tree.setHead(savedHead);
-    }
-    return result;
 }
 
 function updatePanelForDocument(

@@ -1,3 +1,6 @@
+// W7: Graph protocol types for incremental graph updates (graphInit/graphPatch).
+// Currently unused by runtime — webviewManager and webview.js still use legacy 'updateTree' full payload.
+// These types will be wired in W7 when graph protocol is implemented end-to-end.
 export const GRAPH_PROTOCOL_VERSION = 2;
 
 export interface GraphNode {

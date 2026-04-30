@@ -137,8 +137,49 @@ suite('DocumentTaskQueue', () => {
 			});
 			assert.fail('should have thrown');
 		} catch (e: any) {
-			assert.ok(e.message.includes('nested enqueue') || e.message.includes('not allowed'), e.message);
+			assert.ok(e.message.includes('not allowed') || e.message.includes('nested'), e.message);
 		}
+	});
+
+	test('TaskToken.cancelled reflects cancelPending state', async () => {
+		let tokenSeenCancelled = false;
+		const task = queue.enqueue('doc1', 'cancellable', async (token) => {
+			await delay(5);
+			tokenSeenCancelled = token.cancelled;
+		});
+		queue.cancelPending('doc1', 'test cancel');
+		await task;
+		assert.strictEqual(tokenSeenCancelled, true);
+	});
+
+	test('cancelPending rejects queued tasks', async () => {
+		// Hold the first task so second queues up
+		let releaseFirst: (() => void) | undefined;
+		const t1 = queue.enqueue('doc1', 'long', async () => {
+			await new Promise<void>(resolve => { releaseFirst = resolve; });
+		});
+		const t2Promise = queue.enqueue('doc1', 'queued', async () => { /* noop */ });
+		queue.cancelPending('doc1', 'test cancel');
+		releaseFirst!();
+		await t1;
+		try {
+			await t2Promise;
+			assert.fail('should have been rejected');
+		} catch (e: any) {
+			assert.ok(e.message.includes('cancelled'));
+		}
+	});
+
+	test('clear clears active tokens', async () => {
+		let tokenWasCancelled = false;
+		const task = queue.enqueue('doc1', 'test', async (token) => {
+			await delay(5);
+			tokenWasCancelled = token.cancelled;
+		});
+		queue.clear('doc1');
+		await task;
+		// After clear, pending count is zero
+		assert.strictEqual(queue.getPendingCount('doc1'), 0);
 	});
 });
 

@@ -60,6 +60,7 @@ export class HistoryController {
 
 		const rootHash = this.tree.getInternalRootHash();
 		const rootContent = this.tree.getContent(rootHash);
+		const rootNodeId = this.nextNodeId;
 		this.mapHash(rootHash, this.nextNodeId);
 
 		const initEvent: InitEvent = {
@@ -78,6 +79,11 @@ export class HistoryController {
 		this.nextNodeId++;
 		this.events.push(initEvent);
 
+		// Seed ContentStore with root snapshot so resolve() works
+		if (this.contentStore) {
+			this.contentStore.putSnapshot(rootNodeId, rootContent);
+		}
+
 		const initialHash = this.tree.getInitialSnapshotHash();
 		if (initialHash !== rootHash && initialHash !== null) {
 			const snapContent = this.tree.getContent(initialHash);
@@ -91,13 +97,18 @@ export class HistoryController {
 				txId: this.genTxId(),
 				source: 'system',
 				nodeId: snapNodeId,
-				parentId: 0,
+				parentId: rootNodeId,
 				contentRef: { kind: 'snapshot', bytes: Buffer.byteLength(snapContent, 'utf8') },
 				contentHash: sha256(snapContent),
 				isNonEmpty: snapContent.length > 0,
 				stats: { contentBytes: snapContent.length, diffBytes: 0, lineCount: snapContent.split(/\r?\n/).length },
 			};
 			this.events.push(snapEvent);
+
+			// Seed ContentStore with initial snapshot so resolve() works
+			if (this.contentStore) {
+				this.contentStore.putSnapshot(snapNodeId, snapContent);
+			}
 		}
 
 		this.projection = project(this.docId, this.events);
@@ -153,8 +164,15 @@ export class HistoryController {
 				isNonEmpty: newContent.length > 0,
 				stats: { contentBytes: newContent.length, diffBytes, lineCount: newContent.split(/\r?\n/).length },
 			};
-			this.events.push(editEvent);
-			this.projection = project(this.docId, this.events);
+			try {
+				const newProjection = project(this.docId, [...this.events, editEvent]);
+				this.events.push(editEvent);
+				this.projection = newProjection;
+			} catch (err: any) {
+				this.log?.error(`CtrlZTree: project() failed in commit: ${err?.message}`);
+				// Still push event but with stale projection — next operation will re-project
+				this.events.push(editEvent);
+			}
 			this.needsPersist = true; this.log?.debug(`CtrlZTree: commit events=${this.events.length}`);
 			this.log?.debug(`CtrlZTree: commit nodeId=${nodeId} seq=${editEvent.seq} bytes=${newContent.length} events=${this.events.length}`);
 			return { hash: newHash };
@@ -294,10 +312,12 @@ export class HistoryController {
 
 	recordHeadMove(fromHash: string, toHash: string, reason: 'undo' | 'redo' | 'checkout'): void {
 		if (!this.hashToNodeId.has(fromHash)) {
-			this.mapHash(fromHash, this.nextNodeId++);
+			this.log?.warn(`CtrlZTree: recordHeadMove fromHash ${fromHash} is unknown - skipping headMove event`);
+			return;
 		}
 		if (!this.hashToNodeId.has(toHash)) {
-			this.mapHash(toHash, this.nextNodeId++);
+			this.log?.warn(`CtrlZTree: recordHeadMove toHash ${toHash} is unknown - skipping headMove event`);
+			return;
 		}
 		const headMoveEvent: HeadMoveEvent = {
 			kind: 'headMove',

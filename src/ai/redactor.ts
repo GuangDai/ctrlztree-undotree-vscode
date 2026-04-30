@@ -16,6 +16,18 @@ const REDACTION_PATTERNS: Array<{ name: string; pattern: RegExp; replacement: st
 
 	// API key header (X-Api-Key, X-API-Key, api-key, apikey)
 	{ name: 'api_key_header', pattern: /(?:X-Api-Key|X-API-Key|api-key|apikey):\s*[^\n\r]*/gi, replacement: 'X-Api-Key: [REDACTED]' },
+
+	// GitHub Personal Access Tokens (ghp_, gho_, ghs_, ghu_)
+	{ name: 'github_pat', pattern: /\bgh[pous]_[A-Za-z0-9_]{36,255}\b/g, replacement: '[REDACTED:github-token]' },
+
+	// Slack tokens (xoxb-, xoxp-, xoxa-, xoxr-)
+	{ name: 'slack_token', pattern: /\bxox[bpar]-[0-9]{10,13}-[0-9]{10,13}-[A-Za-z0-9_]{24,}\b/g, replacement: '[REDACTED:slack-token]' },
+
+	// JWT tokens (base64url.header.payload.signature)
+	{ name: 'jwt', pattern: /\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b/g, replacement: '[REDACTED:jwt]' },
+
+	// OpenAI API keys (sk-proj-..., sk-admin-..., sk-...)
+	{ name: 'openai_key', pattern: /\bsk-(?:proj-|admin-)?[A-Za-z0-9]{32,}\b/g, replacement: '[REDACTED:openai-key]' },
 ];
 
 const SENSITIVE_KEYS = new Set([

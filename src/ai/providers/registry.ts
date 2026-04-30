@@ -11,7 +11,7 @@ export interface ProviderCapabilities {
 export interface AiProvider {
 	readonly name: string;
 	readonly capabilities: ProviderCapabilities;
-	sendRequest(req: UnifiedAiRequest, apiKey: string, signal?: AbortSignal): Promise<UnifiedAiResponse | AiProviderError>;
+	sendRequest(req: UnifiedAiRequest, apiKey: string, signal?: AbortSignal, baseUrl?: string): Promise<UnifiedAiResponse | AiProviderError>;
 	validateEndpoint?(baseUrl: string): { valid: boolean; reason?: string };
 }
 

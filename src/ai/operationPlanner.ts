@@ -76,7 +76,7 @@ export function validateAiResponse(
 	// 4. Validate operationPlan
 	if (Array.isArray(r.operationPlan)) {
 		for (const item of r.operationPlan as OperationPlanItem[]) {
-			if (item.operation !== 'archive' && item.operation !== 'delete') {
+			if (item.operation !== 'archive' && item.operation !== 'delete' && item.operation !== 'merge' && item.operation !== 'prune') {
 				errors.push(`Unknown operation: ${item.operation}`);
 				continue;
 			}

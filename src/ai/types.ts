@@ -1,4 +1,5 @@
 import { NodeId, EventSeq } from '../history/ids';
+import { Projection } from '../history/projection';
 
 export type AiTask =
 	| 'rename_node'
@@ -25,6 +26,7 @@ export interface UnifiedAiRequest {
 	topP: number;
 	toolMode: 'none' | 'force_schema_tool';
 	parallelToolCalls: boolean;
+	projection?: Projection;
 	metadata: {
 		promptVersion: string;
 		docFingerprint: string;

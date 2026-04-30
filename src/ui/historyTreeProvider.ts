@@ -77,7 +77,8 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 			const items: HistoryTreeItem[] = [];
 			if (head) {
 				const headContent = this.tree.getContent(head);
-				const preview = headContent.length > 60 ? headContent.substring(0, 57) + '...' : headContent;
+				const firstLine = headContent.split('\n')[0];
+				const preview = firstLine.length > 50 ? firstLine.substring(0, 47) + '...' : firstLine;
 				items.push(new HistoryTreeItem(head, `HEAD: ${preview}`, 'ctrlztree.node.head', undefined, true, this.docUri ?? undefined));
 			}
 			return items;
@@ -94,7 +95,8 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 		// Show parent (undo target)
 		if (node.parent) {
 			const parentContent = this.tree.getContent(node.parent);
-			const preview = parentContent.length > 50 ? parentContent.substring(0, 47) + '...' : parentContent;
+			const firstLine = parentContent.split('\n')[0];
+			const preview = firstLine.length > 40 ? firstLine.substring(0, 37) + '...' : firstLine;
 			items.push(new HistoryTreeItem(node.parent, `◀ Undo to: ${preview}`, 'ctrlztree.node.branch', undefined, false, this.docUri ?? undefined));
 		}
 
@@ -102,7 +104,8 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 		for (const childHash of node.children) {
 			const childContent = this.tree.getContent(childHash);
 			const shortHash = childHash.substring(0, 8);
-			const preview = childContent.length > 40 ? childContent.substring(0, 37) + '...' : childContent;
+			const firstLine = childContent.split('\n')[0];
+			const preview = firstLine.length > 35 ? firstLine.substring(0, 32) + '...' : firstLine;
 			const childNode = allNodes.get(childHash);
 			const childChildren = childNode?.children ?? [];
 			const isBranchTip = childChildren.length === 0;
@@ -129,7 +132,8 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 		if (!parentNode) {return null;}
 
 		const content = this.tree.getContent(node.parent);
-		const preview = content.length > 50 ? content.substring(0, 47) + '...' : content;
+		const firstLine = content.split('\n')[0];
+		const preview = firstLine.length > 40 ? firstLine.substring(0, 37) + '...' : firstLine;
 		return new HistoryTreeItem(node.parent, preview, 'ctrlztree.node.branch', undefined, false, this.docUri ?? undefined);
 	}
 }

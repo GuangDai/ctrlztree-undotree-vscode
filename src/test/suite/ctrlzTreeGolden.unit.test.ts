@@ -186,6 +186,50 @@ suite('CtrlZTree Golden Tests', () => {
 		});
 	});
 
+	suite('Hash Identity Edge Cases', () => {
+		test('same content under different parent creates distinct nodes', () => {
+			const tree = new CtrlZTree('start');
+			const h1 = tree.set('hello');
+			tree.z(); // undo
+			const h2 = tree.set('hello'); // same content, different parent
+			// Both nodes should exist in the tree (may have different hashes)
+			assert.ok(h1);
+			assert.ok(h2);
+			const allNodes = tree.getAllNodes();
+			assert.ok(allNodes.has(h1));
+			assert.ok(allNodes.has(h2));
+		});
+
+		test('same content under same parent is deduplicated', () => {
+			const tree = new CtrlZTree('start');
+			const h1 = tree.set('hello');
+			const h2 = tree.set('hello'); // same content, same parent
+			assert.strictEqual(h1, h2, 'same content under same parent should deduplicate');
+		});
+
+		test('content hash stability across identical documents', () => {
+			const tree1 = new CtrlZTree('identical');
+			tree1.set('modified');
+			const tree2 = new CtrlZTree('identical');
+			tree2.set('modified');
+			// Both trees should produce same content for the same edit
+			assert.strictEqual(tree1.getContent(), tree2.getContent());
+		});
+
+		test('undo then different edit creates branch', () => {
+			const tree = new CtrlZTree('root');
+			tree.set('branch-a');
+			tree.z(); // undo
+			tree.set('branch-b'); // new branch at same parent
+			const head = tree.getHead();
+			const allNodes = tree.getAllNodes();
+			const headNode = allNodes.get(head!);
+			assert.ok(headNode);
+			// Head node should have the correct content
+			assert.strictEqual(tree.getContent(), 'branch-b');
+		});
+	});
+
 	suite('Edge Cases', () => {
 		test('unicode content preserved through edits', () => {
 			const tree = new CtrlZTree('你好');

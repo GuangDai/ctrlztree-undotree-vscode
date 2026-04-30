@@ -117,7 +117,7 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
 
     return subscription;
 
-    function processDocumentChange(document: vscode.TextDocument, content: string) {
+    async function processDocumentChange(document: vscode.TextDocument, content: string) {
         const docUriString = document.uri.toString();
 
         if (processingDocuments.has(docUriString)) {
@@ -148,13 +148,12 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
 
                 const controller = deps.getOrCreateController?.(document);
                 if (controller) {
-                    controller.commit(content, cursorPosition)
-                        .then(() => {
-                            log.info('CtrlZTree: Document changed and processed via HistoryController (debounced).');
-                        })
-                        .catch((err: Error) => {
-                            log.error(`CtrlZTree: HistoryController commit error: ${err.message}`);
-                        });
+                    try {
+                        await controller.commit(content, cursorPosition);
+                        log.info('CtrlZTree: Document changed and processed via HistoryController (debounced).');
+                    } catch (err: any) {
+                        log.error(`CtrlZTree: HistoryController commit error: ${err.message}`);
+                    }
                 } else {
                     tree.set(content, cursorPosition);
                 }

@@ -106,7 +106,15 @@ export function clampAiConfig(raw: Partial<AiUserConfig>): ClampedAiConfig {
 function isValidUrl(str: string): boolean {
 	try {
 		const url = new URL(str);
-		return url.protocol === 'http:' || url.protocol === 'https:';
+		if (url.protocol === 'https:') {
+			return true;
+		}
+		// Only allow http:// for localhost/127.0.0.1
+		if (url.protocol === 'http:') {
+			const hostname = url.hostname.toLowerCase();
+			return hostname === 'localhost' || hostname === '127.0.0.1';
+		}
+		return false;
 	} catch {
 		return false;
 	}

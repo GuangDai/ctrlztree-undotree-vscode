@@ -18,6 +18,8 @@ interface ManagerDeps {
     getOrCreateTree: (document: vscode.TextDocument) => CtrlZTree;
     editTokens: ApplyEditTokenSet;
     diffContentRegistry: DiffContentRegistry;
+    onHistoryReset?: (docUri: string) => void;
+    navigateToNode?: (docUri: string, hash: string) => Promise<{ ok: boolean }>;
 }
 
 export interface WebviewManager {
@@ -33,7 +35,9 @@ export function createWebviewManager({
     state,
     getOrCreateTree,
     editTokens,
-    diffContentRegistry
+    diffContentRegistry,
+    onHistoryReset,
+    navigateToNode: externalNavigate
 }: ManagerDeps): WebviewManager {
     const log = new Logger(outputChannel);
     const logLevel = vscode.workspace.getConfiguration('ctrlztree').get<string>('logging.level', 'info') as LogLevel;
@@ -716,70 +720,60 @@ export function createWebviewManager({
         }
 
         const fullHash = currentPanelHashMap.get(shortHash);
-        const targetTree = historyTrees.get(docUriString);
-
-        if (!targetTree) {
-            const recreatedTree = getOrCreateTree(targetEditor.document);
-            postUpdatesToWebview(panel, recreatedTree, docUriString);
-            vscode.window.showInformationMessage('CtrlZTree: Tree recreated. Please try navigation again.');
-            return;
-        }
-
         if (!fullHash) {
+            const targetTree = historyTrees.get(docUriString);
+            if (targetTree) {
+                postUpdatesToWebview(panel, targetTree, docUriString);
+            }
             vscode.window.showWarningMessage(`CtrlZTree: Node ${shortHash} not found. The tree may have been updated.`);
-            postUpdatesToWebview(panel, targetTree, docUriString);
             return;
         }
 
-        const savedHead = targetTree.getHead();
-        if (!targetTree.setHead(fullHash)) {
-            vscode.window.showWarningMessage(`CtrlZTree: Could not find node for hash ${shortHash}`);
-            return;
-        }
-
-        // setHead moved head; if apply fails we will rollback
-        const token = editTokens.begin(docUriString, 'navigate');
-        try {
-            const content = targetTree.getContent();
-            const cursorPosition = targetTree.getCursorPosition();
-            const activeDoc = targetEditor.document;
-
-            const result = await applyEditAndVerify(activeDoc, content);
-
+        // Prefer routing through HistoryController for consistent event logging
+        if (externalNavigate) {
+            const result = await externalNavigate(docUriString, fullHash);
             if (!result.ok) {
-                vscode.window.showErrorMessage(`CtrlZTree navigation failed: ${result.error}`);
-                if (savedHead && savedHead !== fullHash) {
-                    targetTree.setHead(savedHead);
-                }
+                vscode.window.showErrorMessage('CtrlZTree: Navigation failed.');
+            }
+        } else {
+            // Legacy path: direct setHead + apply (maintained for compatibility when no controller)
+            const targetTree = historyTrees.get(docUriString);
+            if (!targetTree) {
+                vscode.window.showInformationMessage('CtrlZTree: Tree not found. Please try again.');
                 return;
             }
-
-            if (cursorPosition) {
-                const maxLine = activeDoc.lineCount - 1;
-                const adjustedLine = Math.min(cursorPosition.line, maxLine);
-                const maxChar = activeDoc.lineAt(adjustedLine).text.length;
-                const adjustedChar = Math.min(cursorPosition.character, maxChar);
-                const adjustedPosition = new vscode.Position(adjustedLine, adjustedChar);
-                targetEditor.selection = new vscode.Selection(adjustedPosition, adjustedPosition);
-                targetEditor.revealRange(new vscode.Range(adjustedPosition, adjustedPosition));
+            const savedHead = targetTree.getHead();
+            if (!targetTree.setHead(fullHash)) {
+                vscode.window.showWarningMessage(`CtrlZTree: Could not find node for hash ${shortHash}`);
+                return;
             }
-
-            await markEditorCleanIfAtInitialSnapshot(targetTree, activeDoc, {
-                targetHash: fullHash,
-                outputChannel
-            });
-        } catch (e: any) {
-            vscode.window.showErrorMessage(`CtrlZTree navigation error: ${e.message}`);
-            if (savedHead && savedHead !== fullHash) {
-                targetTree.setHead(savedHead);
+            const token = editTokens.begin(docUriString, 'navigate');
+            try {
+                const content = targetTree.getContent();
+                const result = await applyEditAndVerify(targetEditor.document, content);
+                if (!result.ok) {
+                    vscode.window.showErrorMessage(`CtrlZTree navigation failed: ${result.error}`);
+                    if (savedHead) { targetTree.setHead(savedHead); }
+                    return;
+                }
+                await markEditorCleanIfAtInitialSnapshot(targetTree, targetEditor.document, {
+                    targetHash: fullHash,
+                    outputChannel
+                });
+            } catch (e: any) {
+                vscode.window.showErrorMessage(`CtrlZTree navigation error: ${e.message}`);
+                if (savedHead) { targetTree.setHead(savedHead); }
+            } finally {
+                editTokens.end(token);
             }
-        } finally {
-            editTokens.end(token);
         }
 
         const navPanel = activeVisualizationPanels.get(docUriString);
         if (navPanel) {
-            postUpdatesToWebview(navPanel, targetTree, docUriString);
+            const navTree = historyTrees.get(docUriString);
+            if (navTree) {
+                postUpdatesToWebview(navPanel, navTree, docUriString);
+            }
         }
     }
 
@@ -822,6 +816,11 @@ export function createWebviewManager({
             historyTrees.delete(docUriString);
             const newTree = new CtrlZTree(targetDocument.getText());
             historyTrees.set(docUriString, newTree);
+
+            // Close and remove the old controller to prevent state split
+            if (onHistoryReset) {
+                onHistoryReset(docUriString);
+            }
 
             resetDocumentTracking(docUriString);
             postUpdatesToWebview(panel, newTree, docUriString);

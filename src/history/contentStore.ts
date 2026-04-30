@@ -17,6 +17,10 @@ export const DEFAULT_SNAPSHOT_POLICY: SnapshotPolicy = {
 	maxContentBytesTracked: 10485760,
 };
 
+function safeSnapshotEvery(policy: SnapshotPolicy): number {
+	return Math.max(1, policy.snapshotEveryNodes);
+}
+
 interface StoredEntry {
 	contentRef: ContentRef;
 	diff?: string;
@@ -51,7 +55,7 @@ export class MemoryContentStore {
 		const diffStr = serializeDiff(generateDiff(parentContent, nextContent));
 		const diffBytes = Buffer.byteLength(diffStr, 'utf8');
 
-		const shouldSnapshot = this.nodeCount % policy.snapshotEveryNodes === 0
+		const shouldSnapshot = this.nodeCount % safeSnapshotEvery(policy) === 0
 			|| nextContent.length > policy.maxDiffDocumentBytes
 			|| diffBytes > policy.snapshotInlineThresholdBytes;
 

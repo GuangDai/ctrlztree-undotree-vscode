@@ -5,6 +5,8 @@ import { ClampedAiConfig } from '../config/configService';
 import { UnifiedAiRequest, UnifiedAiResponse, AiProviderError } from './types';
 import { redactSensitiveData } from './redactor';
 import { Logger } from '../utils/logger';
+import { Projection } from '../history/projection';
+import { validateAiResponse } from './operationPlanner';
 
 export interface AiServiceDeps {
 	registry: ProviderRegistry;
@@ -81,7 +83,7 @@ export class AiService {
 				docId: 'ai-test-connection',
 				label: 'test-connection',
 				execute: async (signal) => {
-					const resp = await provider.sendRequest(request, apiKey, signal);
+					const resp = await provider.sendRequest(request, apiKey, signal, config.baseUrl || undefined);
 					return resp;
 				},
 			});
@@ -138,7 +140,25 @@ export class AiService {
 			docId,
 			label,
 			execute: async (signal) => {
-				return provider.sendRequest(request, apiKey, signal);
+				const resp = await provider.sendRequest(request, apiKey, signal, config.baseUrl || undefined);
+				// Validate AI response against projection (fail-closed)
+				if (!('ok' in resp) || resp.ok !== false) {
+					const proj = request.projection;
+					if (proj) {
+						const validation = validateAiResponse(resp, proj);
+						if (!validation.valid) {
+							return { ok: false, error: `AI response validation failed: ${validation.errors.join('; ')}`, retryable: false } as AiProviderError;
+						}
+					}
+				}
+				return resp;
+			},
+			isRetryable: (result: unknown) => {
+				if (typeof result === 'object' && result !== null) {
+					const r = result as Record<string, unknown>;
+					return r.ok === false && r.retryable === true;
+				}
+				return false;
 			},
 		});
 	}

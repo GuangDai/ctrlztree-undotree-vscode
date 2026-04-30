@@ -88,7 +88,12 @@ export class RequestScheduler {
 	}
 
 	private async executeRequest<T>(req: ScheduledRequest<T>, retryCount: number): Promise<T> {
-		this.concurrent++;
+		// Only increment concurrent on first attempt; retries reuse the slot
+		const isRetry = retryCount > 0;
+		if (!isRetry) {
+			this.concurrent++;
+		}
+
 		const controller = new AbortController();
 		this.addController(req.docId, controller);
 
@@ -104,6 +109,16 @@ export class RequestScheduler {
 			const result = await req.execute(controller.signal);
 
 			clearTimeout(timeoutId);
+
+			// Check if result itself is a retryable error (provider returns error objects, not throws)
+			if (req.isRetryable && req.isRetryable(result)) {
+				if (retryCount < this.config.maxRetries) {
+					this.totalRetried++;
+					return this.retryRequest(req, retryCount);
+				}
+				throw new Error(`Request failed after ${retryCount + 1} attempt(s)`);
+			}
+
 			this.recordRateTimestamp();
 			this.totalCompleted++;
 			return result;
@@ -133,7 +148,9 @@ export class RequestScheduler {
 			throw error;
 		} finally {
 			this.removeController(req.docId, controller);
-			this.concurrent--;
+			if (!isRetry) {
+				this.concurrent--;
+			}
 			this.drainQueue();
 		}
 	}
@@ -141,7 +158,28 @@ export class RequestScheduler {
 	private async retryRequest<T>(req: ScheduledRequest<T>, retryCount: number): Promise<T> {
 		const baseMs = this.config.timeoutMs > 1000 ? 1000 : Math.max(10, this.config.timeoutMs / 2);
 		const delay = Math.min(baseMs * Math.pow(2, retryCount), 3000);
-		await sleep(delay + Math.random() * 100);
+		// retry sleep supports cancellation via abort signal
+		const controller = new AbortController();
+		// Link to doc's controller set for cancellation during sleep
+		let docSet = this.controllers.get(req.docId);
+		if (!docSet) {
+			docSet = new Set();
+			this.controllers.set(req.docId, docSet);
+		}
+		docSet.add(controller);
+		try {
+			await abortAwareSleep(delay + Math.random() * 100, controller.signal);
+		} catch {
+			// Aborted during retry sleep — don't retry
+			throw new Error(`Retry cancelled: ${req.docId}`);
+		} finally {
+			docSet.delete(controller);
+			if (docSet.size === 0) {
+				this.controllers.delete(req.docId);
+			}
+		}
+		// Note: executeRequest increments concurrent — retry stays within the original
+		// request lifecycle so the concurrent cap is preserved.
 		return this.executeRequest(req, retryCount + 1);
 	}
 
@@ -174,12 +212,13 @@ export class RequestScheduler {
 	}
 
 	private async waitForRateLimit(signal?: AbortSignal): Promise<void> {
+		const maxPerHour = Math.max(1, this.config.maxRequestsPerHour);
 		const now = Date.now();
 		const oneHourAgo = now - 3600000;
 
 		this.rateTimestamps = this.rateTimestamps.filter(t => t > oneHourAgo);
 
-		if (this.rateTimestamps.length >= this.config.maxRequestsPerHour) {
+		if (this.rateTimestamps.length >= maxPerHour) {
 			const oldest = this.rateTimestamps[0];
 			const waitMs = oldest - oneHourAgo;
 			if (waitMs > 0) {

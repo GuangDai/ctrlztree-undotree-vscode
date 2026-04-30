@@ -24,7 +24,7 @@
     "url": "https://github.com/4skl/ctrlztree-undotree-vscode.git"
   },
   "engines": {
-    "vscode": "^1.60.0"
+    "vscode": "^1.67.0"
   },
   "categories": [
     "Other"
@@ -166,6 +166,12 @@
           "type": "string",
           "default": "",
           "description": "API base URL for the provider (e.g. https://api.openai.com/v1/chat/completions)"
+        },
+        "ctrlztree.persistence.mode": {
+          "type": "string",
+          "default": "off",
+          "enum": ["off", "ask", "on"],
+          "description": "History persistence mode. off=no persistence, ask=prompt on first save, on=automatically encrypt and persist"
         },
         "ctrlztree.logging.level": {
           "type": "string",
