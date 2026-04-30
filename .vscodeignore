@@ -4,10 +4,21 @@ node_modules/
 # Ignore development files
 .vscode/**
 .vscode-test/**
+.vscode-test.mjs
+.codex
+.codex/**
+AGENTS.md
+IMPLEMENTATION_TODOS.md
+UPGRADE_DESIGN_PLAN*.md
+WHITEBOX_TEST_PLAN.md
+REVIEW-*.md
+scripts/**
+test-fixtures/**
 src/**
 !src/webview/**
 .gitignore
 .yarnrc
+package-lock.json
 vsc-extension-quickstart.md
 **/tsconfig.json
 **/.eslintrc.json

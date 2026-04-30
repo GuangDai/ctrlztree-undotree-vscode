@@ -61,6 +61,10 @@
         "title": "CtrlZTree: Diff with Parent"
       },
       {
+        "command": "ctrlztree.history.mergeChain",
+        "title": "CtrlZTree: Merge Linear History Chain"
+      },
+      {
         "command": "ctrlztree.ai.setApiKey",
         "title": "CtrlZTree: Set AI API Key"
       },
@@ -172,7 +176,9 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
+    "test": "npm run test:clean && vscode-test --config ./.vscode-test.mjs",
+    "test:clean": "node ./scripts/clean-vscode-test-env.mjs",
+    "test:list": "vscode-test --config ./.vscode-test.mjs --list-configuration"
   },
   "devDependencies": {
     "@types/glob": "^7.1.1",
@@ -182,10 +188,11 @@
     "@types/vscode": "^1.60.1",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "eslint": "^8.56.0",
     "glob": "^7.1.7",
     "mocha": "^11.5.0",
-    "typescript": "^4.3.2",
-    "vscode-test": "^1.5.2"
+    "typescript": "^4.3.2"
   }
 }

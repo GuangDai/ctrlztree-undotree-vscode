@@ -1,0 +1,10 @@
+{
+	"ctrlztree.ai.enabled": false,
+	"extensions.autoCheckUpdates": false,
+	"extensions.autoUpdate": false,
+	"git.enabled": false,
+	"security.workspace.trust.enabled": false,
+	"telemetry.telemetryLevel": "off",
+	"update.mode": "none",
+	"workbench.startupEditor": "none"
+}
