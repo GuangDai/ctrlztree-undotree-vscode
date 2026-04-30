@@ -292,6 +292,43 @@ export class HistoryController {
 		return this.needsPersist && this.persistenceService !== undefined;
 	}
 
+	setNeedsPersist(value: boolean): void {
+		this.needsPersist = value;
+	}
+
+	static async fromPersistedEvents(deps: HistoryControllerDeps, events: HistoryEvent[]): Promise<HistoryController> {
+		const controller = new HistoryController(deps);
+		// Replace auto-generated init/edit events with persisted events
+		controller.events = events;
+		controller.nextSeq = events.length > 0 ? Math.max(...events.map(e => e.seq)) + 1 : 0;
+		// Rebuild hash-to-nodeId mapping from persisted events
+		controller.hashToNodeId.clear();
+		controller.nodeIdToHash.clear();
+		let maxNodeId = 0;
+		for (const event of events) {
+			const nodeId = ('nodeId' in event ? (event as any).nodeId : undefined) ??
+				(event.kind === 'headMove' ? (event as any).from : undefined);
+			if (typeof nodeId === 'number' && nodeId > maxNodeId) {
+				maxNodeId = nodeId;
+			}
+		}
+		controller.nextNodeId = maxNodeId + 1;
+		// Rebuild txId counter
+		let maxTx = 0;
+		for (const event of events) {
+			const match = event.txId?.match(/^tx-(\d+)$/);
+			if (match) {
+				const n = parseInt(match[1], 10);
+				if (n >= maxTx) { maxTx = n + 1; }
+			}
+		}
+		(controller as any).nextTxId = maxTx;
+		controller.projection = project(controller.docId, controller.events);
+		controller.needsPersist = false; // Just loaded from disk
+		controller.log?.info(`CtrlZTree: Restored ${events.length} events from persistence`);
+		return controller;
+	}
+
 	async flushToDisk(): Promise<{ ok: true } | { ok: false; error: string }> {
 		if (!this.needsPersist || !this.persistenceService) {
 			return { ok: true };

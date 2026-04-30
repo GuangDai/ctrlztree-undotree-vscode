@@ -185,14 +185,29 @@ export function activate(context: vscode.ExtensionContext) {
 
     const documentQueue = new DocumentTaskQueue();
 
-    const getOrCreateController = (document: vscode.TextDocument): HistoryController => {
+    const getOrCreateController = async (document: vscode.TextDocument): Promise<HistoryController> => {
         const key = document.uri.toString();
         let controller = extensionState.historyControllers.get(key);
         if (!controller) {
             const tree = getOrCreateTree(document);
-            controller = new HistoryController({ docId: key, tree, queue: documentQueue, persistenceService, logger: log });
+            const deps = { docId: key, tree, queue: documentQueue, persistenceService, logger: log };
+
+            // Try to restore from persisted history if persistence is active
+            if (persistenceActive) {
+                const fp = PersistenceService.computeFingerprint(key);
+                const loadResult = await persistenceService.loadDocument(fp);
+                if (loadResult.ok && loadResult.events.length > 0) {
+                    controller = await HistoryController.fromPersistedEvents(deps, loadResult.events);
+                    log.info(`CtrlZTree: Restored ${loadResult.events.length} events from disk for ${key}`);
+                }
+            }
+
+            if (!controller) {
+                controller = new HistoryController(deps);
+                log.debug(`CtrlZTree: Created new HistoryController for ${key}`);
+            }
+
             extensionState.historyControllers.set(key, controller);
-            log.debug(`CtrlZTree: Created HistoryController for ${key}`);
         }
         return controller;
     };
@@ -417,7 +432,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             const result = await applyTreeStateToDocument(document, tree, 'checkout', editTokens);
             if (result.ok) {
-                const controller = getOrCreateController(document);
+                const controller = await getOrCreateController(document);
                 controller.recordHeadMove(savedHead ?? '', item.nodeHash, 'checkout');
             }
             if (!result.ok && savedHead) {
@@ -457,7 +472,7 @@ export function activate(context: vscode.ExtensionContext) {
         const editor = vscode.window.activeTextEditor;
         if (!editor || !isTrackableDocument(editor.document)) { return; }
 
-        const controller = getOrCreateController(editor.document);
+        const controller = await getOrCreateController(editor.document);
         const proj = controller.getProjection();
 
         // Find all nodes on head-to-root path that form a linear chain (each has exactly 1 child)
@@ -507,7 +522,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const document = editor.document;
         const tree = getOrCreateTree(document);
-        const controller = getOrCreateController(document);
+        const controller = await getOrCreateController(document);
 
         const savedHead = tree.getHead();
         const navResult = await controller.undo();
@@ -542,7 +557,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const document = editor.document;
         const tree = getOrCreateTree(document);
-        const controller = getOrCreateController(document);
+        const controller = await getOrCreateController(document);
         const children = tree.peekRedoChildren();
 
         if (children.length === 0) {

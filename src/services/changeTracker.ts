@@ -12,7 +12,7 @@ interface ChangeTrackerDeps {
     outputChannel: vscode.OutputChannel;
     state: ExtensionState;
     getOrCreateTree: (document: vscode.TextDocument) => CtrlZTree;
-    getOrCreateController?: (document: vscode.TextDocument) => HistoryController;
+    getOrCreateController?: (document: vscode.TextDocument) => Promise<HistoryController>;
     webviewManager: WebviewManager;
     editTokens: ApplyEditTokenSet;
     setLastValidEditorUri: (uri: string | null) => void;
@@ -146,7 +146,7 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
                     cursorPosition = editor.selection.active;
                 }
 
-                const controller = deps.getOrCreateController?.(document);
+                const controller = await deps.getOrCreateController?.(document);
                 if (controller) {
                     try {
                         await controller.commit(content, cursorPosition);
