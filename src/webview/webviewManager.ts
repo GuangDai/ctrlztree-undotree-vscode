@@ -392,7 +392,7 @@ export function createWebviewManager({
         // W7: Compute incremental graph diff for future patch protocol
         const gs = getOrCreateGraphState(panel);
         const diff = computeGraphDiff(gs, nodesArrayForVis, edgesArrayForVis, currentHeadShortHash);
-        if (gs.initialized && (diff.addedNodes.length > 0 || diff.removedNodes.length > 0 || diff.updatedNodes.length > 0)) {
+		if (gs.initialized && (diff.addedNodes.length > 0 || diff.removedNodes.length > 0 || diff.addedEdges.length > 0 || diff.removedEdges.length > 0)) {
             outputChannel.appendLine(
                 `CtrlZTree: Graph diff [+${diff.addedNodes.length} -${diff.removedNodes.length} ~${diff.updatedNodes.length}] ` +
                 `edges [+${diff.addedEdges.length} -${diff.removedEdges.length}]`
@@ -406,9 +406,8 @@ export function createWebviewManager({
             headShortHash: currentHeadShortHash
         });
 
-        if (success) {
-            outputChannel.appendLine(`CtrlZTree: Posted updates to webview for ${documentUriString}`);
-        } else {
+		if (success) {
+		} else {
             outputChannel.appendLine(`CtrlZTree: Failed to post updates to webview for ${documentUriString} - panel may be disposed`);
         }
     }
@@ -842,7 +841,6 @@ export function createWebviewManager({
 
     async function handleActiveEditorChange(editor: vscode.TextEditor | undefined): Promise<void> {
         if (!editor) {
-            outputChannel.appendLine('CtrlZTree: Active editor changed to none.');
             return;
         }
 

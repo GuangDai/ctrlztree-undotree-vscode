@@ -228,8 +228,8 @@ export function activate(context: vscode.ExtensionContext) {
         for (const [key, controller] of extensionState.historyControllers) {
             if (controller.getNeedsPersist()) {
                 controller.flushToDisk().then(result => {
-                    if (result.ok) {
-                        outputChannel.appendLine(`CtrlZTree: Auto-persisted ${key}`);
+                    if (!result.ok) {
+                        outputChannel.appendLine(`CtrlZTree: Persist error for ${key}: ${result.error}`);
                     }
                 }).catch(err => {
                     outputChannel.appendLine(`CtrlZTree: Persist error for ${key}: ${err?.message || 'Unknown'}`);
