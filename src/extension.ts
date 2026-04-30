@@ -19,6 +19,7 @@ import { buildOpenAIResponsesRequest, parseOpenAIResponsesResponse } from './ai/
 import { buildCustomHttpJsonRequest, parseCustomHttpJsonResponse } from './ai/providers/customHttpJsonProvider';
 import { DocumentTaskQueue } from './concurrency/documentTaskQueue';
 import { HistoryController } from './history/historyController';
+import { MemoryContentStore } from './history/contentStore';
 import { AiService } from './ai/aiService';
 import { BaseAiProvider } from './ai/providers/base';
 import { RequestScheduler } from './concurrency/requestScheduler';
@@ -209,7 +210,8 @@ export function activate(context: vscode.ExtensionContext) {
         let controller = extensionState.historyControllers.get(key);
         if (!controller) {
             const tree = getOrCreateTree(document);
-            const deps = { docId: key, tree, queue: documentQueue, persistenceService, logger: log };
+            const contentStore = new MemoryContentStore();
+            const deps = { docId: key, tree, queue: documentQueue, contentStore, persistenceService, logger: log };
 
             // Try to restore from persisted history if persistence is active
             if (persistenceActive) {

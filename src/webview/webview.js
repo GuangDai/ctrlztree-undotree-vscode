@@ -304,13 +304,17 @@
             const message = event.data;
             switch (message.command) {
                 case 'updateTree':
+                    // Validate payload before processing
+                    if (!Array.isArray(message.nodes) || !Array.isArray(message.edges)) {
+                        break;
+                    }
                     nodes.clear();
                     edges.clear();
                     nodes.add(message.nodes);
                     // Clear any cached hover styles since node identities/styles changed
                     try { originalNodeStyles.clear(); } catch (e) { /* ignore */ }
                     edges.add(message.edges);
-                    currentHeadNodeId = message.headShortHash;
+                    currentHeadNodeId = (typeof message.headShortHash === 'string') ? message.headShortHash : null;
                     // Apply visual style to the current head node (and reset others)
                     try {
                         if (currentHeadNodeId) {
