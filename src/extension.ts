@@ -25,6 +25,7 @@ import { RequestScheduler } from './concurrency/requestScheduler';
 import { clampAiConfig } from './config/configService';
 import { PersistenceService } from './security/persistenceService';
 import { generateMergePlan } from './history/mergeEngine';
+import { generatePrunePlan, DEFAULT_PRUNING_POLICY } from './history/pruningEngine';
 import { Logger, LogLevel } from './utils/logger';
 
 const extensionState = createExtensionState();
@@ -152,11 +153,29 @@ export function activate(context: vscode.ExtensionContext) {
 
         const config = getConfig();
 
-        // W4 TODO: Replace legacy pruneToMaxNodes with PruningEngine plan + archive.
-        // Hard-deleting nodes from the legacy tree risks losing redo branches.
-        // Temporarily disabled until W4 PruningEngine is wired into runtime.
         if (config.enablePruning && tree.getNodeCount() > config.maxHistoryNodesPerDocument) {
-            log.warn(`CtrlZTree: History for ${key} exceeds maxNodes (${tree.getNodeCount()} > ${config.maxHistoryNodesPerDocument}). Pruning not yet wired - nodes retained.`);
+            // W4: PruningEngine generates archive plan, no hard delete.
+            const controller = extensionState.historyControllers.get(key);
+            if (controller) {
+                const proj = controller.getProjection();
+                const policy = { ...DEFAULT_PRUNING_POLICY, maxNodes: config.maxHistoryNodesPerDocument };
+                const plan = generatePrunePlan(proj, policy);
+                if (plan.archive.length > 0 || plan.delete.length > 0) {
+                    log.info(`CtrlZTree: Pruning ${plan.archive.length} archive + ${plan.delete.length} delete for ${key} (${tree.getNodeCount()} nodes, max ${config.maxHistoryNodesPerDocument})`);
+                    // Archive nodes from legacy tree by keeping them in Map but marking archived in projection
+                    for (const nodeId of plan.archive) {
+                        proj.archivedNodes.add(nodeId);
+                    }
+                    // Hard delete requested nodes that were previously archived
+                    for (const nodeId of plan.delete) {
+                        proj.deletedNodes.add(nodeId);
+                    }
+                    // Mark controller for persistence update
+                    controller.setNeedsPersist(true);
+                }
+            } else {
+                log.warn(`CtrlZTree: Pruning needed for ${key} but no controller available - nodes retained.`);
+            }
         }
 
         // Clean up old histories if too many documents are tracked (only if pruning enabled)

@@ -374,9 +374,35 @@ export class HistoryController {
 
 	async close(): Promise<void> {
 		if (this.needsPersist && this.persistenceService) {
+			this.maybeCompact();
 			await this.flushToDisk();
 		}
 		this.queue.clear(this.docId);
+	}
+
+	// Compact events when they grow beyond threshold to bound memory usage.
+	// Strategy: drop oldest headMove events while preserving edit/init events.
+	private maybeCompact(): void {
+		const MAX_EVENTS = 5000;
+		if (this.events.length <= MAX_EVENTS) { return; }
+
+		const keepFrom = this.events.length - Math.floor(MAX_EVENTS * 0.8);
+		const compacted: HistoryEvent[] = [];
+
+		for (let i = 0; i < this.events.length; i++) {
+			const e = this.events[i];
+			if (e.kind === 'headMove' && i < keepFrom) {
+				continue; // Drop old headMove events
+			}
+			compacted.push(e);
+		}
+
+		if (compacted.length < this.events.length) {
+			this.log?.info(`CtrlZTree: Compacted events from ${this.events.length} to ${compacted.length}`);
+			this.events = compacted;
+			this.projection = project(this.docId, this.events);
+			this.needsPersist = true;
+		}
 	}
 
 	private mapHash(hash: string, nodeId: NodeId): void {
