@@ -179,91 +179,133 @@ export class HistoryController {
 	}
 
 	async undo(): Promise<NavigateResult> {
-		return this.queue.enqueue(this.docId, 'undo', async (token) => {
-			const oldHeadHash = this.tree.getHead();
-			const parentHash = this.tree.peekUndo();
-			if (!parentHash) {
+		return this.queue.enqueue(this.docId, 'undo', async (_token) => {
+			const proj = this.projection;
+			const currentHead = proj.headId;
+			const parentId = proj.parentOf.get(currentHead);
+			if (parentId === undefined || parentId === null) {
 				return { hash: null, content: null };
 			}
-			const resultHash = this.tree.z();
-			if (resultHash) {
-				const headMoveEvent: HeadMoveEvent = {
-					kind: 'headMove',
-					schemaVersion: 1,
-					seq: this.nextSeq++,
-					at: Date.now(),
-					txId: this.genTxId(),
-					source: 'user',
-					from: this.hashToNodeId.get(oldHeadHash!) ?? 0,
-					to: this.hashToNodeId.get(resultHash) ?? 0,
-					reason: 'undo',
-				};
-				this.events.push(headMoveEvent);
-				this.projection = project(this.docId, this.events);
-		this.needsPersist = true; this.log?.debug(`CtrlZTree: undo events=${this.events.length}`);
+			if (proj.deletedNodes.has(parentId)) {
+				return { hash: null, content: null };
 			}
-			const content = resultHash ? this.tree.getContent(resultHash) : null;
-			return { hash: resultHash, content };
+
+			// Record headMove in events/projection without touching legacy tree
+			if (!this.hashToNodeId.has(this.tree.getHead()!)) {
+				const oldHash = this.tree.getHead()!;
+				this.mapHash(oldHash, this.nextNodeId++);
+			}
+			const oldNodeId = this.hashToNodeId.get(this.tree.getHead()!)!;
+			const newNodeId = parentId; // parentId IS the nodeId from projection
+
+			const headMoveEvent: HeadMoveEvent = {
+				kind: 'headMove',
+				schemaVersion: 1,
+				seq: this.nextSeq++,
+				at: Date.now(),
+				txId: this.genTxId(),
+				source: 'user',
+				from: oldNodeId,
+				to: newNodeId,
+				reason: 'undo',
+			};
+			this.events.push(headMoveEvent);
+			this.projection = project(this.docId, this.events);
+			// Sync legacy tree head (single source of truth for content resolution)
+			const parentHash = this.tree.peekUndo();
+			if (parentHash) { this.tree.z(); }
+			const content = this.tree.getContent();
+			this.needsPersist = true;
+			return { hash: parentHash, content };
 		});
 	}
 
 	async redo(childHash?: string): Promise<NavigateResult> {
-		return this.queue.enqueue(this.docId, 'redo', async (token) => {
-			const oldHeadHash = this.tree.getHead();
-			let result: string | string[];
+		return this.queue.enqueue(this.docId, 'redo', async (_token) => {
+			const proj = this.projection;
+			const currentHead = proj.headId;
+			const children = proj.childrenOf.get(currentHead) ?? [];
+			const visibleChildren = children.filter(c => !proj.deletedNodes.has(c) && !proj.archivedNodes.has(c));
+
+			if (visibleChildren.length === 0) {
+				return { hash: null, content: null };
+			}
+
+			let targetId: number;
 			if (childHash) {
-				const success = this.tree.setHead(childHash);
-				result = success ? childHash : '';
+				// Resolve child by hash to nodeId
+				const targetNodeId = this.hashToNodeId.get(childHash);
+				if (targetNodeId === undefined || !visibleChildren.includes(targetNodeId)) {
+					return { hash: null, content: null };
+				}
+				targetId = targetNodeId;
 			} else {
-				result = this.tree.y();
+				targetId = visibleChildren[0]; // First visible child
 			}
-			const newHash = typeof result === 'string' ? result : (Array.isArray(result) && result.length > 0 ? result[0] : null);
-			if (newHash) {
-				const headMoveEvent: HeadMoveEvent = {
-					kind: 'headMove',
-					schemaVersion: 1,
-					seq: this.nextSeq++,
-					at: Date.now(),
-					txId: this.genTxId(),
-					source: 'user',
-					from: this.hashToNodeId.get(oldHeadHash!) ?? 0,
-					to: this.hashToNodeId.get(newHash) ?? 0,
-					reason: 'redo',
-				};
-				this.events.push(headMoveEvent);
-				this.projection = project(this.docId, this.events);
-		this.needsPersist = true; this.log?.debug(`CtrlZTree: redo events=${this.events.length}`);
-			}
-			const content = newHash ? this.tree.getContent(newHash) : null;
-			return { hash: newHash, content };
+
+			const oldNodeId = this.hashToNodeId.get(this.tree.getHead()!) ?? currentHead;
+
+			const headMoveEvent: HeadMoveEvent = {
+				kind: 'headMove',
+				schemaVersion: 1,
+				seq: this.nextSeq++,
+				at: Date.now(),
+				txId: this.genTxId(),
+				source: 'user',
+				from: oldNodeId,
+				to: targetId,
+				reason: 'redo',
+			};
+			this.events.push(headMoveEvent);
+			this.projection = project(this.docId, this.events);
+			// Sync legacy tree head
+			if (childHash) { this.tree.setHead(childHash); } else { this.tree.y(); }
+			const newHash = this.tree.getHead()!;
+			this.needsPersist = true;
+			return { hash: newHash, content: this.tree.getContent() };
 		});
 	}
 
 	async checkout(hash: string): Promise<{ success: boolean; content: string | null }> {
-		return this.queue.enqueue(this.docId, 'checkout', async (token) => {
-			const oldHeadHash = this.tree.getHead();
-			const success = this.tree.setHead(hash);
-			if (success) {
-				if (!this.hashToNodeId.has(hash)) {
-					this.mapHash(hash, this.nextNodeId++);
+		return this.queue.enqueue(this.docId, 'checkout', async (_token) => {
+			const targetNodeId = this.hashToNodeId.get(hash);
+			if (targetNodeId === undefined) {
+				// Hash not yet mapped — try to map it now
+				const allNodes = this.tree.getAllNodes();
+				if (!allNodes.has(hash)) {
+					return { success: false, content: null };
 				}
-				const headMoveEvent: HeadMoveEvent = {
-					kind: 'headMove',
-					schemaVersion: 1,
-					seq: this.nextSeq++,
-					at: Date.now(),
-					txId: this.genTxId(),
-					source: 'user',
-					from: this.hashToNodeId.get(oldHeadHash!) ?? 0,
-					to: this.hashToNodeId.get(hash)!,
-					reason: 'checkout',
-				};
-				this.events.push(headMoveEvent);
-				this.projection = project(this.docId, this.events);
-		this.needsPersist = true; this.log?.debug(`CtrlZTree: checkout events=${this.events.length}`);
+				this.mapHash(hash, this.nextNodeId++);
 			}
-			const content = success ? this.tree.getContent(hash) : null;
-			return { success, content };
+			const finalTargetId = this.hashToNodeId.get(hash)!;
+			const proj = this.projection;
+
+			if (proj.deletedNodes.has(finalTargetId)) {
+				return { success: false, content: null };
+			}
+			if (!proj.byId.has(finalTargetId)) {
+				return { success: false, content: null };
+			}
+
+			const oldNodeId = this.hashToNodeId.get(this.tree.getHead()!) ?? proj.headId;
+
+			const headMoveEvent: HeadMoveEvent = {
+				kind: 'headMove',
+				schemaVersion: 1,
+				seq: this.nextSeq++,
+				at: Date.now(),
+				txId: this.genTxId(),
+				source: 'user',
+				from: oldNodeId,
+				to: finalTargetId,
+				reason: 'checkout',
+			};
+			this.events.push(headMoveEvent);
+			this.projection = project(this.docId, this.events);
+			// Sync legacy tree head
+			this.tree.setHead(hash);
+			this.needsPersist = true;
+			return { success: true, content: this.tree.getContent(hash) };
 		});
 	}
 
@@ -473,6 +515,10 @@ export class HistoryController {
 			await this.flushToDisk();
 		}
 		this.queue.clear(this.docId);
+		// Release ContentStore memory
+		if (this.contentStore) {
+			this.contentStore.reset();
+		}
 	}
 
 	// Compact events when they grow beyond threshold to bound memory usage.
