@@ -8,9 +8,12 @@ node_modules/
 .codex
 .codex/**
 AGENTS.md
+CLAUDE.md
 IMPLEMENTATION_TODOS.md
 UPGRADE_DESIGN_PLAN*.md
 WHITEBOX_TEST_PLAN.md
+Review-Claude.MD
+Review-Codex.MD
 REVIEW-*.md
 scripts/**
 test-fixtures/**
