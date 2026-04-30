@@ -208,5 +208,60 @@ suite('HistoryController', () => {
 			assert.ok(proj.byId.has(proj.headId));
 			assert.ok(!proj.deletedNodes.has(proj.headId));
 		});
+
+		test('executeMergePlan creates merge event and returns new nodeId', async () => {
+			await controller.commit('a');
+			await controller.commit('ab');
+			await controller.commit('abc');
+			const projBefore = controller.getProjection();
+			// Find a linear chain of 3 nodes
+			const plan = { sourceIds: [2, 3], targetParentId: 1, estimatedBytesFreed: 2048, warnings: [], valid: true };
+			const result = controller.executeMergePlan(plan, 'abc');
+			assert.ok(result.ok);
+			if (result.ok) {
+				assert.ok(result.nodeId > 0);
+				const projAfter = controller.getProjection();
+				assert.ok(projAfter.byId.has(result.nodeId));
+			}
+		});
+
+		test('executeMergePlan rejects invalid plan', () => {
+			const result = controller.executeMergePlan(
+				{ sourceIds: [], targetParentId: 0, estimatedBytesFreed: 0, warnings: ['invalid'], valid: false },
+				'x'
+			);
+			assert.ok(!result.ok);
+			if (!result.ok) {
+				assert.ok(result.error.includes('not valid'));
+			}
+		});
+
+		test('executeDeletePlan archives specified nodes', async () => {
+			await controller.commit('a');
+			await controller.commit('ab');
+			await controller.commit('abc');
+			// Undo twice to move head away from nodes we want to delete
+			await controller.undo();
+			await controller.undo();
+			const projBefore = controller.getProjection();
+			const targetIds = Array.from(projBefore.byId.keys()).filter(id =>
+				id !== projBefore.headId && id !== projBefore.rootId
+			).slice(0, 2);
+			if (targetIds.length > 0) {
+				const plan = { targetIds, mode: 'soft' as const, estimatedBytesFreed: 2048, warnings: [], valid: true, requiresConfirmation: false };
+				const result = controller.executeDeletePlan(plan);
+				assert.ok(result.ok);
+				const events = controller.getEvents();
+				const archiveEvents = events.filter(e => e.kind === 'archive');
+				assert.ok(archiveEvents.length > 0);
+			}
+		});
+
+		test('executeDeletePlan rejects invalid plan', () => {
+			const result = controller.executeDeletePlan(
+				{ targetIds: [], mode: 'soft', estimatedBytesFreed: 0, warnings: ['none'], valid: false, requiresConfirmation: false }
+			);
+			assert.ok(!result.ok);
+		});
 	});
 });
