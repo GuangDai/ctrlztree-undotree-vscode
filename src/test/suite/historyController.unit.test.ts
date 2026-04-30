@@ -263,5 +263,41 @@ suite('HistoryController', () => {
 			);
 			assert.ok(!result.ok);
 		});
+
+		test('undo validates via projection and returns correct content', async () => {
+			await controller.commit('v1');
+			await controller.commit('v2');
+			const result = await controller.undo();
+			assert.ok(result.hash, 'Should return undo target hash');
+			assert.ok(result.content, 'Should return undo target content');
+			assert.strictEqual(result.content, 'v1');
+			const proj = controller.getProjection();
+			assert.ok(proj.byId.has(proj.headId));
+			assert.ok(!proj.deletedNodes.has(proj.headId));
+		});
+
+		test('redo validates via projection and returns correct content', async () => {
+			await controller.commit('v1');
+			await controller.commit('v2');
+			await controller.undo(); // back to v1
+			const children = controller.getProjection().childrenOf.get(controller.getProjection().headId) ?? [];
+			const firstChild = children.find(c => !controller.getProjection().deletedNodes.has(c));
+			if (firstChild !== undefined) {
+				const result = await controller.redo();
+				assert.ok(result.hash);
+				assert.strictEqual(result.content, 'v2');
+			}
+		});
+
+		test('undo at root returns null', async () => {
+			const result = await controller.undo();
+			assert.strictEqual(result.hash, null);
+			assert.strictEqual(result.content, null);
+		});
+
+		test('checkout rejects nonexistent hash', async () => {
+			const result = await controller.checkout('nonexistent_hash_12345');
+			assert.strictEqual(result.success, false);
+		});
 	});
 });

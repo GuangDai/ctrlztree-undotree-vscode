@@ -99,6 +99,41 @@ suite('Projection', () => {
 		assert.strictEqual(p.archivedNodes.has(1), true);
 	});
 
+	test('archive removes node from parent childrenOf', () => {
+		const events: HistoryEvent[] = [
+			makeInit(0),
+			makeEdit(1, 0, 1),
+			makeEdit(2, 1, 2),
+			{ kind: 'archive', schemaVersion: 1, seq: 3, at: 2000, txId: 'tx-3', source: 'user', nodeIds: [2], reason: 'test' }
+		];
+		const p = project('doc1', events);
+		// Node 2 should be archived
+		assert.strictEqual(p.archivedNodes.has(2), true);
+		// Node 1's children should no longer include node 2
+		const children = p.childrenOf.get(1) ?? [];
+		assert.ok(!children.includes(2), 'Archived node should be removed from parent childrenOf');
+		// Node 2 should not be a branch tip
+		assert.ok(!p.branchTips.includes(2), 'Archived node should not be a branch tip');
+	});
+
+	test('nodes with archived parents are not branch tips', () => {
+		// Create chain 0->1->2, archive node 1 (parent of 2)
+		const events: HistoryEvent[] = [
+			makeInit(0),
+			makeEdit(1, 0, 1),
+			makeEdit(2, 1, 2),
+			makeEdit(3, 2, 3),
+			{ kind: 'archive', schemaVersion: 1, seq: 4, at: 2000, txId: 'tx-4', source: 'user', nodeIds: [2], reason: 'test' }
+		];
+		const p = project('doc1', events);
+		// Node 2 is archived, node 3 has archived parent (2)
+		assert.ok(!p.branchTips.includes(2), 'Archived node should not be a tip');
+		assert.ok(!p.branchTips.includes(3), 'Node with archived parent should not be a tip');
+		// Node 3 should not have node 2 in its children (archived cleanup)
+		const childrenOf1 = p.childrenOf.get(1) ?? [];
+		assert.ok(!childrenOf1.includes(2), 'Parent childrenOf should not include archived node');
+	});
+
 	test('hard delete adds nodes to deleted set', () => {
 		const events: HistoryEvent[] = [
 			makeInit(0),
