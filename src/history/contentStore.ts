@@ -166,6 +166,13 @@ export class MemoryContentStore {
 		return entry?.snapshot !== undefined;
 	}
 
+	reset(): void {
+		this.entries.clear();
+		this.cache.clear();
+		this.cacheSize = 0;
+		this.nodeCount = 0;
+	}
+
 	clearCacheFor(nodeId: NodeId): void {
 		const cached = this.cache.get(nodeId);
 		if (cached) {

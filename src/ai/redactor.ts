@@ -39,13 +39,13 @@ const SENSITIVE_KEYS = new Set([
 	'private_key', 'privatekey', 'secret_key', 'secretkey',
 	'credential', 'credentials',
 	'cookie', 'set-cookie', 'set_cookie', 'setcookie',
-	'proxy-authorization', 'proxy_authorization', 'proxyauthorization',
+	'proxy-authorization', 'proxyauthorization',
 ]);
 
 const SENSITIVE_HEADERS_LOWER = new Set([
-	'authorization', 'proxy-authorization', 'proxy_authorization',
+	'authorization', 'proxy-authorization',
 	'cookie', 'set-cookie',
-	'x-api-key', 'x-api-key', 'apikey', 'api-key',
+	'x-api-key', 'apikey', 'api-key',
 ]);
 
 export interface RedactionResult {

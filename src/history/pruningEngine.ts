@@ -132,9 +132,20 @@ export function generatePrunePlan(
 		}
 	}
 
-	// Check against max nodes
+	// Check against max nodes — if exceeded, move lowest-priority kept nodes to archive
 	if (keep.size > policy.maxNodes) {
-		warnings.push(`keep set exceeds maxNodes: ${keep.size} > ${policy.maxNodes}`);
+		// Collect non-protected, non-head-path nodes sorted by age (oldest first)
+		const candidates = Array.from(keep)
+			.filter(id => !headPath.has(id) && !protectedNodes.has(id) && !namedNodes.includes(id))
+			.map(id => ({ id, createdAt: byId.get(id)?.createdAt ?? 0 }))
+			.sort((a, b) => a.createdAt - b.createdAt);
+
+		const overflow = keep.size - policy.maxNodes;
+		for (let i = 0; i < Math.min(overflow, candidates.length); i++) {
+			keep.delete(candidates[i].id);
+			archive.add(candidates[i].id);
+		}
+		warnings.push(`keep set exceeded maxNodes: trimmed ${Math.min(overflow, candidates.length)} nodes to archive`);
 	}
 
 	const requiresConfirmation = hardDelete.size > 0 || warnings.length > 0;

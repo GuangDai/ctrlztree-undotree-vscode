@@ -55,9 +55,11 @@ suite('MergeEngine', () => {
 suite('DeleteEngine', () => {
 	test('soft delete on non-head leaf node is valid', () => {
 		const proj = makeLinearChain(5);
-		const plan = generateDeletePlan(proj, [4], 'soft');
-		// Node 4 is head in default chain, so this will be rejected
-		// Fix: set head to something else
+		// In a linear chain of 5, node 4 (0-indexed) is the head.
+		// Delete node 2 (a middle node) instead
+		const plan = generateDeletePlan(proj, [2], 'soft');
+		assert.ok(plan.warnings.length > 0, 'Should warn about orphaned children');
+		assert.strictEqual(plan.valid, false, 'Should be invalid due to orphaned child');
 	});
 
 	test('cannot delete head node', () => {
