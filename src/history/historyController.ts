@@ -5,6 +5,7 @@ import { CtrlZTree } from '../model/ctrlZTree';
 import { DocumentTaskQueue } from '../concurrency/documentTaskQueue';
 import { MemoryContentStore, SnapshotPolicy } from './contentStore';
 import { PersistenceService } from '../security/persistenceService';
+import { Logger } from '../utils/logger';
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 
@@ -19,6 +20,7 @@ export interface HistoryControllerDeps {
 	contentStore?: MemoryContentStore;
 	snapshotPolicy?: SnapshotPolicy;
 	persistenceService?: PersistenceService;
+	logger?: Logger;
 }
 
 export interface CommitResult {
@@ -37,6 +39,7 @@ export class HistoryController {
 	private contentStore?: MemoryContentStore;
 	private snapshotPolicy?: SnapshotPolicy;
 	private persistenceService?: PersistenceService;
+	private log?: Logger;
 	private events: HistoryEvent[] = [];
 	private projection: Projection;
 	private nextNodeId: NodeId = 0;
@@ -53,6 +56,7 @@ export class HistoryController {
 		this.contentStore = deps.contentStore;
 		this.snapshotPolicy = deps.snapshotPolicy;
 		this.persistenceService = deps.persistenceService;
+		this.log = deps.logger;
 
 		const rootHash = this.tree.getInternalRootHash();
 		const rootContent = this.tree.getContent(rootHash);
@@ -97,7 +101,7 @@ export class HistoryController {
 		}
 
 		this.projection = project(this.docId, this.events);
-		this.needsPersist = true;
+		this.needsPersist = true; this.log?.debug(`CtrlZTree: init events=${this.events.length}`);
 	}
 
 	async commit(content: string, cursor?: vscode.Position): Promise<CommitResult> {
@@ -151,7 +155,8 @@ export class HistoryController {
 			};
 			this.events.push(editEvent);
 			this.projection = project(this.docId, this.events);
-		this.needsPersist = true;
+			this.needsPersist = true; this.log?.debug(`CtrlZTree: commit events=${this.events.length}`);
+			this.log?.debug(`CtrlZTree: commit nodeId=${nodeId} seq=${editEvent.seq} bytes=${newContent.length} events=${this.events.length}`);
 			return { hash: newHash };
 		});
 	}
@@ -178,7 +183,7 @@ export class HistoryController {
 				};
 				this.events.push(headMoveEvent);
 				this.projection = project(this.docId, this.events);
-		this.needsPersist = true;
+		this.needsPersist = true; this.log?.debug(`CtrlZTree: undo events=${this.events.length}`);
 			}
 			const content = resultHash ? this.tree.getContent(resultHash) : null;
 			return { hash: resultHash, content };
@@ -210,7 +215,7 @@ export class HistoryController {
 				};
 				this.events.push(headMoveEvent);
 				this.projection = project(this.docId, this.events);
-		this.needsPersist = true;
+		this.needsPersist = true; this.log?.debug(`CtrlZTree: redo events=${this.events.length}`);
 			}
 			const content = newHash ? this.tree.getContent(newHash) : null;
 			return { hash: newHash, content };
@@ -238,7 +243,7 @@ export class HistoryController {
 				};
 				this.events.push(headMoveEvent);
 				this.projection = project(this.docId, this.events);
-		this.needsPersist = true;
+		this.needsPersist = true; this.log?.debug(`CtrlZTree: checkout events=${this.events.length}`);
 			}
 			const content = success ? this.tree.getContent(hash) : null;
 			return { success, content };
@@ -281,6 +286,8 @@ export class HistoryController {
 		);
 		if (result.ok) {
 			this.needsPersist = false;
+		} else {
+			this.log?.warn(`CtrlZTree: flushToDisk failed for ${this.docId}: ${result.error}`);
 		}
 		return result;
 	}
@@ -305,7 +312,7 @@ export class HistoryController {
 		};
 		this.events.push(headMoveEvent);
 		this.projection = project(this.docId, this.events);
-		this.needsPersist = true;
+		this.needsPersist = true; this.log?.debug(`CtrlZTree: headMove events=${this.events.length}`);
 	}
 
 	async close(): Promise<void> {

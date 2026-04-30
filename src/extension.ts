@@ -143,7 +143,7 @@ export function activate(context: vscode.ExtensionContext) {
         let controller = extensionState.historyControllers.get(key);
         if (!controller) {
             const tree = getOrCreateTree(document);
-            controller = new HistoryController({ docId: key, tree, queue: documentQueue, persistenceService });
+            controller = new HistoryController({ docId: key, tree, queue: documentQueue, persistenceService, logger: log });
             extensionState.historyControllers.set(key, controller);
             log.debug(`CtrlZTree: Created HistoryController for ${key}`);
         }
