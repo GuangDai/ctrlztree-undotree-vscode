@@ -351,19 +351,24 @@ export function activate(context: vscode.ExtensionContext) {
 
     // W6: Auto-persist timer (flushes dirty controllers to disk every 5 seconds)
     // Only active when persistence is enabled (mode=on or user approved ask)
+    let persistFlushInProgress = false;
     const persistTimer = setInterval(() => {
-        if (!persistenceActive) { return; }
-        for (const [key, controller] of extensionState.historyControllers) {
-            if (controller.getNeedsPersist()) {
+        if (!persistenceActive || persistFlushInProgress) { return; }
+        persistFlushInProgress = true;
+        const flushes = Array.from(extensionState.historyControllers.entries())
+            .filter(([_, c]) => c.getNeedsPersist())
+            .map(([key, controller]) =>
                 controller.flushToDisk().then(result => {
                     if (!result.ok) {
                         log.error(`CtrlZTree: Persist error for ${key}: ${result.error}`);
                     }
                 }).catch(err => {
                     log.error(`CtrlZTree: Persist error for ${key}: ${err?.message || 'Unknown'}`);
-                });
-            }
-        }
+                })
+            );
+        Promise.allSettled(flushes).finally(() => {
+            persistFlushInProgress = false;
+        });
     }, 5000);
     extensionState.persistTimer = persistTimer;
 
@@ -446,17 +451,32 @@ export function activate(context: vscode.ExtensionContext) {
 
             const document = editor.document;
             const tree = getOrCreateTree(document);
-            const savedHead = tree.getHead();
-            if (!tree.setHead(item.nodeHash)) {return;}
+            const controller = await getOrCreateController(document);
 
-            const result = await applyTreeStateToDocument(document, tree, 'checkout', editTokens);
-            if (result.ok) {
-                const controller = await getOrCreateController(document);
-                controller.recordHeadMove(savedHead ?? '', item.nodeHash, 'checkout');
+            // Use controller.checkout() for consistent event logging
+            const result = await controller.checkout(item.nodeHash);
+            if (!result.success) {
+                vscode.window.showWarningMessage(`CtrlZTree: Could not find node ${item.nodeHash.substring(0, 8)}`);
+                return;
             }
-            if (!result.ok && savedHead) {
-                tree.setHead(savedHead);
+
+            const applyResult = await applyTreeStateToDocument(document, tree, 'checkout', editTokens);
+            if (!applyResult.ok) {
+                // Controller already recorded the checkout in events/projection but apply failed.
+                // Undo the checkout to keep projection consistent with actual document state.
+                const newHash = controller.getHead()!;
+                // Find parent to undo back - or just re-apply previous state
+                // Best effort: controller already sees checkout, tree head is at target.
+                // If apply fails, tree content is still at target but editor is not.
+                // Force tree back to the original state:
+                const prevHash = tree.getAllNodes().get(newHash)?.parent;
+                if (prevHash) {
+                    await controller.checkout(prevHash);
+                    applyTreeStateToDocument(document, tree, 'checkout', editTokens).catch(() => {});
+                }
+                log.error(`CtrlZTree: TreeView navigate apply failed: ${applyResult.error}`);
             }
+            historyTreeProvider.refresh();
         })
     );
 

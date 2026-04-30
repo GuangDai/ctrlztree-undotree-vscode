@@ -156,7 +156,10 @@ export class AiService {
 			isRetryable: (result: unknown) => {
 				if (typeof result === 'object' && result !== null) {
 					const r = result as Record<string, unknown>;
-					return r.ok === false && r.retryable === true;
+					if (r.ok === false && r.retryable === true) { return true; }
+					if (r.ok === false && typeof r.statusCode === 'number') {
+						return r.statusCode === 429 || (r.statusCode >= 500 && r.statusCode < 600);
+					}
 				}
 				return false;
 			},
