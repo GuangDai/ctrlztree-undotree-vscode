@@ -44,7 +44,7 @@ export class DocumentTaskQueue {
 					this.running.delete(docId);
 				}
 			} finally {
-				const count = (this.pendingCounts.get(docId) ?? 1) - 1;
+				const count = (this.pendingCounts.get(docId) ?? 0) - 1;
 				if (count <= 0) {
 					this.pendingCounts.delete(docId);
 					this.cancelled.delete(docId);

@@ -164,14 +164,13 @@ export class HistoryController {
 				isNonEmpty: newContent.length > 0,
 				stats: { contentBytes: newContent.length, diffBytes, lineCount: newContent.split(/\r?\n/).length },
 			};
+			this.events.push(editEvent);
 			try {
-				const newProjection = project(this.docId, [...this.events, editEvent]);
-				this.events.push(editEvent);
-				this.projection = newProjection;
+				this.projection = project(this.docId, this.events);
 			} catch (err: any) {
 				this.log?.error(`CtrlZTree: project() failed in commit: ${err?.message}`);
-				// Still push event but with stale projection — next operation will re-project
-				this.events.push(editEvent);
+				// Projection is stale but event was already pushed.
+				// Next operation will re-project from all events.
 			}
 			this.needsPersist = true; this.log?.debug(`CtrlZTree: commit events=${this.events.length}`);
 			this.log?.debug(`CtrlZTree: commit nodeId=${nodeId} seq=${editEvent.seq} bytes=${newContent.length} events=${this.events.length}`);
@@ -292,6 +291,13 @@ export class HistoryController {
 		if (!plan.valid) {
 			return { ok: false, error: 'Merge plan is not valid' };
 		}
+		// Filter out already-archived or deleted source nodes to avoid duplicate archive references
+		const activeSources = plan.sourceIds.filter(id =>
+			!this.projection.archivedNodes.has(id) && !this.projection.deletedNodes.has(id)
+		);
+		if (activeSources.length === 0) {
+			return { ok: false, error: 'All source nodes are already archived or deleted' };
+		}
 		const resultNodeId = this.nextNodeId++;
 		const mergeEvent: import('./events').MergeEvent = {
 			kind: 'merge',
@@ -301,11 +307,11 @@ export class HistoryController {
 			txId: this.genTxId(),
 			source: 'user',
 			resultId: resultNodeId,
-			sourceIds: plan.sourceIds,
+			sourceIds: activeSources,
 			parentId: plan.targetParentId,
 			contentRef: { kind: 'snapshot', nodeId: resultNodeId, bytes: Buffer.byteLength(resultContent, 'utf8') },
 			contentHash: sha256(resultContent),
-			archivedSourceIds: plan.sourceIds,
+			archivedSourceIds: activeSources,
 			reason: 'User requested linear chain merge',
 		};
 		this.events.push(mergeEvent);
@@ -360,10 +366,17 @@ export class HistoryController {
 		controller.nodeIdToHash.clear();
 		let maxNodeId = 0;
 		for (const event of events) {
-			const nodeId = ('nodeId' in event ? (event as any).nodeId : undefined) ??
-				(event.kind === 'headMove' ? (event as any).from : undefined);
-			if (typeof nodeId === 'number' && nodeId > maxNodeId) {
-				maxNodeId = nodeId;
+			const ids: number[] = [];
+			if ('nodeId' in event) { ids.push((event as any).nodeId); }
+			if (event.kind === 'headMove') { ids.push((event as any).from, (event as any).to); }
+			if (event.kind === 'merge') { ids.push((event as any).resultId, (event as any).parentId); }
+			if (event.kind === 'archive' || event.kind === 'delete') { ids.push(...((event as any).nodeIds ?? [])); }
+			if (event.kind === 'reset') { ids.push((event as any).newRootId); }
+			if (event.kind === 'edit') { ids.push((event as any).parentId); }
+			for (const id of ids) {
+				if (typeof id === 'number' && id > maxNodeId) {
+					maxNodeId = id;
+				}
 			}
 		}
 		controller.nextNodeId = maxNodeId + 1;

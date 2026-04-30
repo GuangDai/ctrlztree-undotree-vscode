@@ -51,12 +51,26 @@ export class PersistenceService {
 
 			const encryptedData = await this.persistenceStore.encrypt(ndjson);
 
+			// Try loading existing manifest to preserve createdAt
+			let createdAt = Date.now();
+			try {
+				const existingManifestFile = vscode.Uri.joinPath(vscode.Uri.joinPath(this.basePath, docFingerprint), 'manifest.json.enc');
+				const existingEncrypted = await vscode.workspace.fs.readFile(existingManifestFile);
+				const existingJson = await this.persistenceStore.decrypt(Buffer.from(existingEncrypted));
+				const existing = JSON.parse(existingJson);
+				if (typeof existing.createdAt === 'number') {
+					createdAt = existing.createdAt;
+				}
+			} catch {
+				// No existing manifest, use current time
+			}
+
 			const manifest: DocManifest = {
 				schemaVersion: 1,
 				docFingerprint,
 				eventCount: events.length,
 				lastEventSeq: lastSeq,
-				createdAt: Date.now(),
+				createdAt,
 				updatedAt: Date.now(),
 				dataHash,
 			};
@@ -121,6 +135,14 @@ export class PersistenceService {
 
 			if (events.length !== manifest.eventCount) {
 				return { ok: false, error: `Event count mismatch: expected ${manifest.eventCount}, got ${events.length}` };
+			}
+
+			// Verify data integrity hash if present
+			if (manifest.dataHash) {
+				const loadedDataHash = crypto.createHash('sha256').update(ndjson, 'utf8').digest('hex');
+				if (loadedDataHash !== manifest.dataHash) {
+					return { ok: false, error: 'Data integrity check failed: events file may be corrupt' };
+				}
 			}
 
 			// Load ContentStore entries if present

@@ -895,11 +895,14 @@ export function createWebviewManager({
                 panel.title = `CtrlZTree ${fileName}`;
                 const tree = getOrCreateTree(editor.document);
                 postUpdatesToWebview(panel, tree, docUriString);
+                // Clean old context before repurposing
+                panelDocumentContexts.delete(panel);
                 activeVisualizationPanels.delete(otherDocUri);
                 activeVisualizationPanels.set(docUriString, panel);
                 updatePanelDocumentContext(panel, editor.document);
                 return;
             } else if (!isPanelValid(panel)) {
+                panelDocumentContexts.delete(panel);
                 activeVisualizationPanels.delete(otherDocUri);
             }
         }

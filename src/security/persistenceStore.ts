@@ -77,8 +77,12 @@ export class PersistenceStore {
 			throw new Error('PersistenceStore not initialized');
 		}
 
+		const MAX_ENCRYPTED_SIZE = 100 * 1024 * 1024; // 100MB limit to prevent memory exhaustion
 		if (encrypted.length < IV_LENGTH + AUTH_TAG_LENGTH) {
 			throw new Error('Encrypted data too short');
+		}
+		if (encrypted.length > MAX_ENCRYPTED_SIZE) {
+			throw new Error(`Encrypted data too large: ${encrypted.length} bytes (max ${MAX_ENCRYPTED_SIZE})`);
 		}
 
 		const iv = encrypted.subarray(0, IV_LENGTH);

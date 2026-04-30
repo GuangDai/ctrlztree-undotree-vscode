@@ -117,7 +117,8 @@ export function executeMerge(
 	resultNodeId: NodeId,
 	baseSeq: EventSeq,
 ): MergeResult {
-	const contentHash = ''; // Will be computed by the caller via sha256
+	const crypto = require('crypto');
+	const contentHash = crypto.createHash('sha256').update(resultContent, 'utf8').digest('hex');
 
 	const mergeEvent: MergeEvent = {
 		kind: 'merge',

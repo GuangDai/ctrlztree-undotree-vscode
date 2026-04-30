@@ -499,7 +499,7 @@ export function activate(context: vscode.ExtensionContext) {
         let cursor: number | null = proj.headId;
         while (cursor !== null && cursor !== proj.rootId) {
             const children = proj.childrenOf.get(cursor) ?? [];
-            if (children.filter(c => !proj.deletedNodes.has(c)).length <= 1) {
+            if (children.filter(c => !proj.deletedNodes.has(c) && !proj.archivedNodes.has(c)).length <= 1) {
                 linearChain.push(cursor);
             } else {
                 break;
@@ -568,9 +568,10 @@ export function activate(context: vscode.ExtensionContext) {
         if (!result.ok) {
             // Rollback: set head back to saved
             if (savedHead) {
+                const failedHead = navResult.hash; // head was moved here by controller.undo()
                 tree.setHead(savedHead);
-                // Record the rollback so projection stays consistent
-                controller.recordHeadMove(tree.getHead()!, savedHead, 'undo');
+                // Record rollback: from failed position back to saved position
+                controller.recordHeadMove(failedHead, savedHead, 'undo');
             }
             return;
         }
@@ -609,8 +610,9 @@ export function activate(context: vscode.ExtensionContext) {
             const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens);
             if (!result.ok) {
                 if (savedHead) {
+                    const failedHead = navResult.hash;
                     tree.setHead(savedHead);
-                    controller.recordHeadMove(tree.getHead()!, savedHead, 'redo');
+                    controller.recordHeadMove(failedHead, savedHead, 'redo');
                 }
                 return;
             }
@@ -646,8 +648,9 @@ export function activate(context: vscode.ExtensionContext) {
         const result = await applyTreeStateToDocument(document, tree, 'redo', editTokens);
         if (!result.ok) {
             if (savedHead) {
+                const failedHead = navResult.hash;
                 tree.setHead(savedHead);
-                controller.recordHeadMove(tree.getHead()!, savedHead, 'redo');
+                controller.recordHeadMove(failedHead, savedHead, 'redo');
             }
             return;
         }
