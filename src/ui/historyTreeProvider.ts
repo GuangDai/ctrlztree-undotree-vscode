@@ -73,18 +73,76 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 		const head = this.tree.getHead();
 
 		if (!element) {
-			// Root level: show current head
+			// Root level: show timeline from HEAD back to initial commit
 			const items: HistoryTreeItem[] = [];
-			if (head) {
-				const headContent = this.tree.getContent(head);
-				const firstLine = headContent.split('\n')[0];
-				const preview = firstLine.length > 50 ? firstLine.substring(0, 47) + '...' : firstLine;
-				items.push(new HistoryTreeItem(head, `HEAD: ${preview}`, 'ctrlztree.node.head', undefined, true, this.docUri ?? undefined));
+			if (!head) { return items; }
+
+			// Collect the undo chain (HEAD -> parent -> grandparent -> ... -> initial)
+			const chain: string[] = [];
+			const visited = new Set<string>();
+			let cursor: string | null = head;
+			while (cursor && !visited.has(cursor)) {
+				visited.add(cursor);
+				chain.push(cursor);
+				const node = allNodes.get(cursor);
+				cursor = node?.parent ?? null;
+			}
+
+			// Build timeline items (most recent first = HEAD)
+			for (let i = 0; i < chain.length; i++) {
+				const nodeHash = chain[i];
+				const node = allNodes.get(nodeHash);
+				if (!node) { continue; }
+
+				const content = this.tree.getContent(nodeHash);
+				const shortHash = nodeHash.substring(0, 8);
+				const firstLine = content.split('\n')[0];
+				const preview = firstLine.length > 45 ? firstLine.substring(0, 42) + '...' : firstLine;
+				const timestamp = new Date(node.timestamp).toLocaleTimeString();
+
+				const isHead = nodeHash === head;
+				const isRoot = this.tree.getInternalRootHash() === nodeHash;
+				const isInitial = this.tree.getInitialSnapshotHash() === nodeHash;
+				const childCount = node.children.length;
+
+				let label: string;
+				let context: HistoryTreeItemContext;
+				let collapsible: boolean;
+
+				if (isHead) {
+					label = `● HEAD — ${timestamp} — ${shortHash} — ${preview}`;
+					context = 'ctrlztree.node.head';
+					collapsible = childCount > 0;
+				} else if (isInitial) {
+					label = `◆ Initial — ${timestamp} — ${shortHash} — ${preview}`;
+					context = 'ctrlztree.node.branch';
+					collapsible = childCount > 0;
+				} else if (isRoot) {
+					label = `○ Root — ${shortHash}`;
+					context = 'ctrlztree.node.branch';
+					collapsible = childCount > 0;
+				} else {
+					const redoCount = childCount;
+					const branchIndicator = redoCount > 1 ? ` [${redoCount} branches]` : '';
+					label = `  ${timestamp} — ${shortHash}${branchIndicator} — ${preview}`;
+					context = redoCount > 1 ? 'ctrlztree.node.branchTip' : 'ctrlztree.node.branch';
+					collapsible = redoCount > 0;
+				}
+
+				const childrenHashes = collapsible ? node.children : undefined;
+				items.push(new HistoryTreeItem(
+					nodeHash,
+					label,
+					context,
+					childrenHashes,
+					false,
+					this.docUri ?? undefined
+				));
 			}
 			return items;
 		}
 
-		// Children: show branch tips and redo children
+		// Children: show redo children (branches off this node)
 		const node = allNodes.get(element.nodeHash);
 		if (!node) {
 			return [];
@@ -92,7 +150,7 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 
 		const items: HistoryTreeItem[] = [];
 
-		// Show parent (undo target)
+		// Show parent (undo target) as first child
 		if (node.parent) {
 			const parentContent = this.tree.getContent(node.parent);
 			const firstLine = parentContent.split('\n')[0];
@@ -111,7 +169,7 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 			const isBranchTip = childChildren.length === 0;
 			items.push(new HistoryTreeItem(
 				childHash,
-				`${shortHash}: ${preview}`,
+				`▶ ${shortHash}: ${preview}`,
 				isBranchTip ? 'ctrlztree.node.branchTip' : 'ctrlztree.node.branch',
 				undefined,
 				false,

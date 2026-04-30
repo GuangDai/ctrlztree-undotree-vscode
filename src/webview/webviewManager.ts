@@ -658,8 +658,8 @@ export function createWebviewManager({
             const fileName = vscode.workspace.textDocuments.find(doc => doc.uri.toString() === docUriString)?.uri.path.split(/[\\/]/).pop() || 'document';
 
             const diffId = diffContentRegistry.register(parentContent, currentContent, fileName);
-            const parentUri = vscode.Uri.parse(`${DIFF_SCHEME}:${diffId}/original`);
-            const currentUri = vscode.Uri.parse(`${DIFF_SCHEME}:${diffId}/modified`);
+            const parentUri = vscode.Uri.parse(`${DIFF_SCHEME}://diff/${diffId}/original`);
+            const currentUri = vscode.Uri.parse(`${DIFF_SCHEME}://diff/${diffId}/modified`);
 
             if (state.lastOpenedDiffEditor && !state.lastOpenedDiffEditor.document.isClosed) {
                 const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs);

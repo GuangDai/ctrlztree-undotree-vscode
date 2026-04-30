@@ -117,9 +117,17 @@ export function activate(context: vscode.ExtensionContext) {
         readonly onDidChange = this._onDidChange.event;
 
         provideTextDocumentContent(uri: vscode.Uri): string {
-            const registryId = uri.authority;
-            const side = uri.path.slice(1) as 'original' | 'modified';
-            if (!registryId || (side !== 'original' && side !== 'modified')) {
+            // URI format: ctrlztree-diff://diff/<registryId>/<side>
+            // path is /<registryId>/<side>
+            const parts = uri.path.split('/').filter(p => p.length > 0);
+            if (parts.length !== 2) {
+                return '';
+            }
+            const [registryId, side] = parts as [string, string];
+            if (side !== 'original' && side !== 'modified') {
+                return '';
+            }
+            if (!registryId) {
                 return '';
             }
             const record = diffContentRegistry.get(registryId);
@@ -495,8 +503,8 @@ export function activate(context: vscode.ExtensionContext) {
             const fileName = document.uri.path.split(/[\\/]/).pop() || 'document';
 
             const diffId = diffContentRegistry.register(parentContent, currentContent, fileName);
-            const parentUri = vscode.Uri.parse(`${DIFF_SCHEME}:${diffId}/original`);
-            const currentUri = vscode.Uri.parse(`${DIFF_SCHEME}:${diffId}/modified`);
+            const parentUri = vscode.Uri.parse(`${DIFF_SCHEME}://diff/${diffId}/original`);
+            const currentUri = vscode.Uri.parse(`${DIFF_SCHEME}://diff/${diffId}/modified`);
 
             await vscode.commands.executeCommand('vscode.diff', parentUri, currentUri, `${fileName}: ${parentShortHash} ↔ ${shortHash}`, { viewColumn: vscode.ViewColumn.Beside, preview: false });
         })
