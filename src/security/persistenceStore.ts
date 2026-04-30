@@ -44,12 +44,12 @@ export class PersistenceStore {
 			} else {
 				this.dataKey = Buffer.from(keyBase64, 'base64');
 				if (this.dataKey.length !== KEY_LENGTH) {
-					return { ok: false, error: 'Invalid data key length' };
+					return { ok: false, error: 'Invalid stored data key format' };
 				}
 			}
 			return { ok: true };
-		} catch (e: any) {
-			return { ok: false, error: `Failed to initialize persistence key: ${e.message}` };
+		} catch {
+			return { ok: false, error: 'Failed to initialize persistence key' };
 		}
 	}
 

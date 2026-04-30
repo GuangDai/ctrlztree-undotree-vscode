@@ -34,7 +34,7 @@
     "onEditSession:file"
   ],
   "main": "./out/extension.js",
-    "contributes": {
+  "contributes": {
     "commands": [
       {
         "command": "ctrlztree.undo",
@@ -133,8 +133,8 @@
         "ctrlztree.maxHistoryNodesPerDocument": {
           "type": "integer",
           "default": 1000,
-          "minimum": 100,
-          "description": "Maximum number of history nodes to keep per document before pruning (minimum 100)"
+          "minimum": 50,
+          "description": "Maximum number of history nodes to keep per document before pruning (minimum 50)"
         },
         "ctrlztree.maxTrackedDocuments": {
           "type": "integer",

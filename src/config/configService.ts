@@ -6,6 +6,22 @@ export interface CtrlZTreeUserConfig {
 	maxTrackedDocuments: number;
 }
 
+export interface AiUserConfig {
+	enabled: boolean;
+	provider: string;
+	model: string;
+	baseUrl: string;
+}
+
+export interface ClampedAiConfig {
+	enabled: boolean;
+	provider: string;
+	model: string;
+	baseUrl: string;
+	valid: boolean;
+	errors: string[];
+}
+
 export function clampConfig(
 	raw: Partial<CtrlZTreeUserConfig>,
 	onWarn?: (message: string) => void
@@ -54,4 +70,44 @@ export function clampConfig(
 	}
 
 	return { enablePruning, maxHistoryNodesPerDocument, maxTrackedDocuments };
+}
+
+export function clampAiConfig(raw: Partial<AiUserConfig>): ClampedAiConfig {
+	const errors: string[] = [];
+
+	const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : CONFIG_DEFAULTS.ai.defaultEnabled;
+
+	const validProviders = CONFIG_DEFAULTS.ai.validProviders as readonly string[];
+	const provider = typeof raw.provider === 'string' ? raw.provider : CONFIG_DEFAULTS.ai.defaultProvider;
+	if (!validProviders.includes(provider)) {
+		errors.push(`Invalid AI provider "${provider}". Must be one of: ${validProviders.join(', ')}`);
+	}
+
+	const model = typeof raw.model === 'string' ? raw.model.trim() : '';
+	if (enabled && model === '') {
+		errors.push('AI model is required when AI is enabled');
+	}
+
+	const baseUrl = typeof raw.baseUrl === 'string' ? raw.baseUrl.trim() : '';
+	if (enabled && baseUrl !== '' && !isValidUrl(baseUrl)) {
+		errors.push(`Invalid AI baseUrl format: "${baseUrl}"`);
+	}
+
+	return {
+		enabled,
+		provider: validProviders.includes(provider) ? provider : CONFIG_DEFAULTS.ai.defaultProvider,
+		model,
+		baseUrl,
+		valid: errors.length === 0,
+		errors,
+	};
+}
+
+function isValidUrl(str: string): boolean {
+	try {
+		const url = new URL(str);
+		return url.protocol === 'http:' || url.protocol === 'https:';
+	} catch {
+		return false;
+	}
 }

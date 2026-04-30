@@ -129,6 +129,17 @@ suite('DocumentTaskQueue', () => {
 		});
 		assert.strictEqual(executed, true);
 	});
+
+	test('rejects nested enqueue for same doc', async () => {
+		try {
+			await queue.enqueue('doc1', 'outer', async () => {
+				await queue.enqueue('doc1', 'inner', async () => { /* noop */ });
+			});
+			assert.fail('should have thrown');
+		} catch (e: any) {
+			assert.ok(e.message.includes('nested enqueue') || e.message.includes('not allowed'), e.message);
+		}
+	});
 });
 
 function delay(ms: number): Promise<void> {

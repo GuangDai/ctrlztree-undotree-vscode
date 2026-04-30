@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { clampConfig } from '../../config/configService';
+import { clampConfig, clampAiConfig } from '../../config/configService';
 
 suite('ConfigService clampConfig', () => {
 	test('returns defaults when raw is empty', () => {
@@ -91,5 +91,69 @@ suite('ConfigService clampConfig', () => {
 		assert.strictEqual(result.enablePruning, true);
 		assert.strictEqual(result.maxHistoryNodesPerDocument, 1000);
 		assert.strictEqual(result.maxTrackedDocuments, 100);
+	});
+});
+
+suite('ConfigService clampAiConfig', () => {
+	test('returns defaults when raw is empty', () => {
+		const result = clampAiConfig({});
+		assert.strictEqual(result.enabled, false);
+		assert.strictEqual(result.provider, 'openai-chat-compatible');
+		assert.strictEqual(result.valid, true);
+	});
+
+	test('accepts valid AI config', () => {
+		const result = clampAiConfig({
+			enabled: true,
+			provider: 'anthropic-messages',
+			model: 'claude-sonnet-4-6',
+			baseUrl: 'https://api.anthropic.com/v1/messages',
+		});
+		assert.strictEqual(result.valid, true);
+		assert.strictEqual(result.enabled, true);
+		assert.strictEqual(result.provider, 'anthropic-messages');
+		assert.strictEqual(result.model, 'claude-sonnet-4-6');
+	});
+
+	test('rejects invalid provider', () => {
+		const result = clampAiConfig({ provider: 'invalid-provider' });
+		assert.strictEqual(result.valid, false);
+		assert.ok(result.errors.some(e => e.includes('Invalid')));
+		assert.strictEqual(result.provider, 'openai-chat-compatible');
+	});
+
+	test('rejects empty model when enabled', () => {
+		const result = clampAiConfig({ enabled: true, model: '' });
+		assert.strictEqual(result.valid, false);
+		assert.ok(result.errors.some(e => e.includes('model')));
+	});
+
+	test('accepts empty model when disabled', () => {
+		const result = clampAiConfig({ enabled: false, model: '' });
+		assert.strictEqual(result.valid, true);
+	});
+
+	test('rejects invalid baseUrl format', () => {
+		const result = clampAiConfig({ enabled: true, model: 'gpt', baseUrl: 'not-a-url' });
+		assert.strictEqual(result.valid, false);
+		assert.ok(result.errors.some(e => e.includes('baseUrl')));
+	});
+
+	test('accepts HTTP localhost baseUrl', () => {
+		const result = clampAiConfig({ enabled: true, model: 'test', baseUrl: 'http://localhost:8080' });
+		assert.strictEqual(result.valid, true);
+	});
+
+	test('rejects FTP baseUrl', () => {
+		const result = clampAiConfig({ enabled: true, model: 'test', baseUrl: 'ftp://example.com' });
+		assert.strictEqual(result.valid, false);
+	});
+
+	test('all four valid providers accepted', () => {
+		for (const p of ['openai-chat-compatible', 'openai-responses', 'anthropic-messages', 'custom-http-json']) {
+			const result = clampAiConfig({ provider: p });
+			assert.strictEqual(result.provider, p, `provider ${p} should be accepted`);
+			assert.strictEqual(result.valid, !result.errors.length, `provider ${p} should be valid`);
+		}
 	});
 });

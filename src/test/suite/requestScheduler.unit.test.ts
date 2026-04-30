@@ -187,6 +187,7 @@ suite('RequestScheduler', () => {
 
 	test('cancelByDoc aborts running requests', async () => {
 		const cancelSched = new RequestScheduler({ ...fastConfig, maxConcurrentRequests: 5 });
+		let wasCancelled = false;
 		try {
 			const promise = cancelSched.schedule({
 				docId: 'doc1',
@@ -205,13 +206,14 @@ suite('RequestScheduler', () => {
 			await delay(20);
 			cancelSched.cancelByDoc('doc1', 'test cancel');
 			await promise;
-			assert.fail('Should have been cancelled');
 		} catch (e: any) {
-			assert.ok(true);
+			wasCancelled = true;
+			assert.ok(e.message.includes('Aborted') || e.message.includes('cancelled'), e.message);
 		}
+		assert.ok(wasCancelled, 'should have been cancelled');
 	});
 
-	test('cancelByDoc removes queued requests for that doc', async () => {
+	test('cancelByDoc rejects queued requests for that doc', async () => {
 		const limited = new RequestScheduler({ ...fastConfig, maxConcurrentRequests: 1 });
 
 		// Fill the running slot (doc2 so cancel won't abort it)
@@ -225,11 +227,16 @@ suite('RequestScheduler', () => {
 		const p1 = limited.schedule({ docId: 'doc1', label: 'q1', execute: async () => 'b' });
 		const p2 = limited.schedule({ docId: 'doc1', label: 'q2', execute: async () => 'c' });
 
-		// Cancel doc1 - should remove both queued requests
+		// Cancel doc1 - should reject both queued requests
 		limited.cancelByDoc('doc1', 'test');
 
-		try { await p1; assert.fail('p1 should be cancelled'); } catch (e: any) { assert.ok(e.message.includes('cancel'), e.message); }
-		try { await p2; assert.fail('p2 should be cancelled'); } catch (e: any) { assert.ok(e.message.includes('cancel'), e.message); }
+		let p1Rejected = false;
+		try { await p1; } catch (e: any) { p1Rejected = true; assert.ok(e.message.includes('cancelled'), e.message); }
+		assert.ok(p1Rejected, 'p1 should have been rejected');
+
+		let p2Rejected = false;
+		try { await p2; } catch (e: any) { p2Rejected = true; assert.ok(e.message.includes('cancelled'), e.message); }
+		assert.ok(p2Rejected, 'p2 should have been rejected');
 
 		await running; // doc2 runs fine
 	});
@@ -303,5 +310,81 @@ suite('RequestScheduler', () => {
 
 		await Promise.all([t1, t2]);
 		assert.deepStrictEqual(results, [1, 2]);
+	});
+
+	test('cancelByDoc rejects queued-only requests (no running controller)', async () => {
+		const sched = new RequestScheduler({ ...fastConfig, maxConcurrentRequests: 1 });
+
+		// Fill the only concurrency slot with doc2
+		const running = sched.schedule({
+			docId: 'doc2', label: 'slow',
+			execute: async () => { await delay(80); return 'a'; },
+		});
+
+		// Queue for doc1 (no running controller for doc1 exists)
+		const p1 = sched.schedule({ docId: 'doc1', label: 'q1', execute: async () => 'b' });
+		const p2 = sched.schedule({ docId: 'doc1', label: 'q2', execute: async () => 'c' });
+
+		sched.cancelByDoc('doc1', 'no-controller');
+
+		let p1Rejected = false;
+		try { await p1; } catch (e: any) { p1Rejected = true; assert.ok(e.message.includes('cancelled'), e.message); }
+		assert.ok(p1Rejected, 'p1 should be rejected even with no running controller for doc1');
+
+		let p2Rejected = false;
+		try { await p2; } catch (e: any) { p2Rejected = true; assert.ok(e.message.includes('cancelled'), e.message); }
+		assert.ok(p2Rejected, 'p2 should be rejected even with no running controller for doc1');
+
+		await running;
+	});
+
+	test('cancelByDoc rejects running+queued requests correctly', async () => {
+		const sched = new RequestScheduler({ ...fastConfig, maxConcurrentRequests: 1 });
+
+		// doc1 running blocks the only slot
+		const running = sched.schedule({
+			docId: 'doc1', label: 'slow',
+			execute: async (signal) => {
+				const start = Date.now();
+				while (!signal.aborted && Date.now() - start < 300) {
+					await delay(10);
+				}
+				if (signal.aborted) { throw new Error('Aborted by cancel'); }
+				return 'a';
+			},
+		});
+
+		// Queue another for doc1
+		const queued = sched.schedule({ docId: 'doc1', label: 'q', execute: async () => 'b' });
+
+		await delay(10);
+		sched.cancelByDoc('doc1', 'cancel all');
+
+		let runningRejected = false;
+		try { await running; } catch { runningRejected = true; }
+		assert.ok(runningRejected, 'running request should be rejected via abort');
+
+		let queuedRejected = false;
+		try { await queued; } catch (e: any) { queuedRejected = true; assert.ok(e.message.includes('cancelled'), e.message); }
+		assert.ok(queuedRejected, 'queued request should be rejected');
+	});
+
+	test('cancelByDoc does not affect requests for other docs', async () => {
+		const sched = new RequestScheduler({ ...fastConfig, maxConcurrentRequests: 1 });
+
+		const running = sched.schedule({
+			docId: 'doc2', label: 'slow',
+			execute: async () => { await delay(80); return 'a'; },
+		});
+
+		const p = sched.schedule({ docId: 'doc1', label: 'q', execute: async () => 'b' });
+		sched.cancelByDoc('doc1', 'cancel');
+
+		let pRejected = false;
+		try { await p; } catch { pRejected = true; }
+		assert.ok(pRejected, 'doc1 queued should be rejected');
+
+		const result = await running;
+		assert.strictEqual(result, 'a');
 	});
 });

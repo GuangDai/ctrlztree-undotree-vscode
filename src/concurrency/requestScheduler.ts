@@ -60,14 +60,21 @@ export class RequestScheduler {
 
 	cancelByDoc(docId: string, reason: string): void {
 		const controllers = this.controllers.get(docId);
-		if (!controllers) {return;}
-
-		for (const ctrl of controllers) {
-			try { ctrl.abort(reason); } catch { /* ignore already-aborted */ }
+		if (controllers) {
+			for (const ctrl of controllers) {
+				try { ctrl.abort(reason); } catch { /* ignore already-aborted */ }
+			}
+			this.controllers.delete(docId);
 		}
-		this.controllers.delete(docId);
 
-		this.queue = this.queue.filter(item => item.req.docId !== docId);
+		const cancelErr = new Error(`Request cancelled: ${reason}`);
+		this.queue = this.queue.filter(item => {
+			if (item.req.docId === docId) {
+				item.reject(cancelErr);
+				return false;
+			}
+			return true;
+		});
 	}
 
 	getStats(): SchedulerStats {
@@ -92,7 +99,7 @@ export class RequestScheduler {
 		}, this.config.timeoutMs);
 
 		try {
-			await this.waitForRateLimit();
+			await this.waitForRateLimit(controller.signal);
 
 			const result = await req.execute(controller.signal);
 
@@ -166,7 +173,7 @@ export class RequestScheduler {
 		}
 	}
 
-	private async waitForRateLimit(): Promise<void> {
+	private async waitForRateLimit(signal?: AbortSignal): Promise<void> {
 		const now = Date.now();
 		const oneHourAgo = now - 3600000;
 
@@ -176,7 +183,7 @@ export class RequestScheduler {
 			const oldest = this.rateTimestamps[0];
 			const waitMs = oldest - oneHourAgo;
 			if (waitMs > 0) {
-				await sleep(waitMs);
+				await abortAwareSleep(waitMs, signal);
 				this.rateTimestamps = this.rateTimestamps.filter(t => t > Date.now() - 3600000);
 			}
 		}
@@ -189,6 +196,24 @@ export class RequestScheduler {
 
 function sleep(ms: number): Promise<void> {
 	return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function abortAwareSleep(ms: number, signal?: AbortSignal): Promise<void> {
+	if (!signal || ms <= 0) {
+		return sleep(ms);
+	}
+	return new Promise((resolve, reject) => {
+		if (signal.aborted) {
+			reject(new Error('Aborted during wait'));
+			return;
+		}
+		const timer = setTimeout(resolve, ms);
+		const onAbort = () => {
+			clearTimeout(timer);
+			reject(new Error('Aborted during wait'));
+		};
+		signal.addEventListener('abort', onAbort, { once: true });
+	});
 }
 
 function isRetryableHttpError(error: unknown): boolean {

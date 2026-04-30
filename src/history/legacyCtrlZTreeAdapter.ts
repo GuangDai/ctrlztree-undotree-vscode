@@ -1,10 +1,15 @@
 import { CtrlZTree, TreeNode } from '../model/ctrlZTree';
 import { HistoryEvent, InitEvent, EditEvent, HeadMoveEvent } from './events';
-import { NodeId, EventSeq, TxId } from './ids';
+import { NodeId, EventSeq, TxId, ContentHash } from './ids';
+import * as crypto from 'crypto';
 
 export interface MigrationResult {
 	events: HistoryEvent[];
 	warnings: string[];
+}
+
+function sha256Hex(content: string): string {
+	return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
 export function migrateCtrlZTreeToEvents(tree: CtrlZTree): MigrationResult {
@@ -41,7 +46,7 @@ export function migrateCtrlZTreeToEvents(tree: CtrlZTree): MigrationResult {
 		source: 'migration',
 		nodeId: initNodeId,
 		contentRef: { kind: 'snapshot', bytes: Buffer.byteLength(initContent, 'utf8') },
-		contentHash: rootHash,
+		contentHash: sha256Hex(initContent),
 		isNonEmpty: initContent.length > 0,
 		fileSig: { mtime: 0, size: initContent.length }
 	};
@@ -63,7 +68,7 @@ export function migrateCtrlZTreeToEvents(tree: CtrlZTree): MigrationResult {
 				nodeId: snapId,
 				parentId: initNodeId,
 				contentRef: { kind: 'snapshot', bytes: Buffer.byteLength(snapContent, 'utf8') },
-				contentHash: initialSnapshotHash,
+				contentHash: sha256Hex(snapContent),
 				isNonEmpty: snapContent.length > 0,
 				stats: { contentBytes: snapContent.length, diffBytes: 0, lineCount: snapContent.split(/\r?\n/).length }
 			};
@@ -118,7 +123,7 @@ export function migrateCtrlZTreeToEvents(tree: CtrlZTree): MigrationResult {
 				nodeId: childId,
 				parentId: parentId,
 				contentRef: { kind: 'inline-diff', nodeId: childId, bytes: Buffer.byteLength(diffStr, 'utf8') },
-				contentHash: childHash,
+				contentHash: sha256Hex(childContent),
 				isNonEmpty: childContent.length > 0,
 				cursor: childNode.cursorPosition ? { line: childNode.cursorPosition.line, character: childNode.cursorPosition.character } : undefined,
 				stats: { contentBytes: childContent.length, diffBytes: Buffer.byteLength(diffStr, 'utf8'), lineCount: childContent.split(/\r?\n/).length }

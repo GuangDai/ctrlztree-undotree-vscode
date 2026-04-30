@@ -18,6 +18,9 @@ import { buildAnthropicMessagesRequest } from './ai/providers/anthropicMessagesP
 import { buildOpenAIResponsesRequest } from './ai/providers/openaiResponsesProvider';
 import { buildCustomHttpJsonRequest } from './ai/providers/customHttpJsonProvider';
 import { ProviderName } from './ai/providers/registry';
+import { redactSensitiveData } from './ai/redactor';
+import { DocumentTaskQueue } from './concurrency/documentTaskQueue';
+import { HistoryController } from './history/historyController';
 
 const extensionState = createExtensionState();
 
@@ -26,12 +29,22 @@ function isTrackableDocument(document: vscode.TextDocument | undefined): documen
     return !!document && (document.uri.scheme === 'file' || document.uri.scheme === 'untitled');
 }
 
+function isValidUrl(str: string): boolean {
+    try {
+        const url = new URL(str);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
 export function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel('CtrlZTree');
     context.subscriptions.push(outputChannel);
     outputChannel.appendLine('CtrlZTree: Extension activating...');
 
     const editTokens = new ApplyEditTokenSet();
+    extensionState.editTokens = editTokens;
 
     const diffContentRegistry = createDiffContentRegistry();
 
@@ -110,6 +123,20 @@ export function activate(context: vscode.ExtensionContext) {
         return tree;
     };
 
+    const documentQueue = new DocumentTaskQueue();
+
+    const getOrCreateController = (document: vscode.TextDocument): HistoryController => {
+        const key = document.uri.toString();
+        let controller = extensionState.historyControllers.get(key);
+        if (!controller) {
+            const tree = getOrCreateTree(document);
+            controller = new HistoryController({ docId: key, tree, queue: documentQueue });
+            extensionState.historyControllers.set(key, controller);
+            outputChannel.appendLine(`CtrlZTree: Created HistoryController for ${key}`);
+        }
+        return controller;
+    };
+
     const webviewManager = createWebviewManager({
         context,
         outputChannel,
@@ -119,18 +146,28 @@ export function activate(context: vscode.ExtensionContext) {
         diffContentRegistry
     });
 
+    // W5: TreeView provider (created early so changeTracker can refresh it)
+    const historyTreeProvider = new HistoryTreeProvider();
+    context.subscriptions.push(
+        vscode.window.registerTreeDataProvider('ctrlztree.history', historyTreeProvider)
+    );
+
     const changeTracker = registerDocumentChangeTracking({
         context,
         outputChannel,
         state: extensionState,
         getOrCreateTree,
+        getOrCreateController,
         webviewManager,
         editTokens,
         setLastValidEditorUri: uri => {
             extensionState.lastValidEditorUri = uri;
         },
         actionTimeout: ACTION_TIMEOUT,
-        pauseThreshold: PAUSE_THRESHOLD
+        pauseThreshold: PAUSE_THRESHOLD,
+        onDocumentCommitted: (docUri, tree) => {
+            historyTreeProvider.setTree(tree, docUri);
+        }
     });
     context.subscriptions.push(changeTracker);
 
@@ -184,12 +221,6 @@ export function activate(context: vscode.ExtensionContext) {
     if (vscode.window.activeTextEditor) {
         void webviewManager.handleActiveEditorChange(vscode.window.activeTextEditor);
     }
-
-    // W5: TreeView provider
-    const historyTreeProvider = new HistoryTreeProvider();
-    context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('ctrlztree.history', historyTreeProvider)
-    );
 
     // Update TreeView when active editor changes
     context.subscriptions.push(
@@ -447,6 +478,12 @@ export function activate(context: vscode.ExtensionContext) {
         const config = vscode.workspace.getConfiguration('ctrlztree');
         const provider = config.get<string>('ai.provider', 'openai-chat-compatible') as ProviderName;
 
+        const validProviders: ProviderName[] = ['openai-chat-compatible', 'openai-responses', 'anthropic-messages', 'custom-http-json'];
+        if (!validProviders.includes(provider)) {
+            vscode.window.showErrorMessage(`CtrlZTree: Invalid provider "${provider}". Check your ai.provider setting.`);
+            return;
+        }
+
         const key = await vscode.window.showInputBox({
             prompt: `Enter API key for provider: ${provider}`,
             password: true,
@@ -490,8 +527,20 @@ export function activate(context: vscode.ExtensionContext) {
         const baseUrl = config.get<string>('ai.baseUrl', '');
         const model = config.get<string>('ai.model', '');
 
+        const validProviders: ProviderName[] = ['openai-chat-compatible', 'openai-responses', 'anthropic-messages', 'custom-http-json'];
+        if (!validProviders.includes(provider)) {
+            vscode.window.showErrorMessage(`CtrlZTree: Invalid provider "${provider}". Must be one of: ${validProviders.join(', ')}`);
+            return;
+        }
+
         if (!baseUrl || !model) {
             vscode.window.showErrorMessage('CtrlZTree: Please configure ai.baseUrl and ai.model in settings first.');
+            return;
+        }
+
+        // Basic URL format validation
+        if (!isValidUrl(baseUrl)) {
+            vscode.window.showErrorMessage(`CtrlZTree: Invalid ai.baseUrl format: "${baseUrl}". Must be a valid URL.`);
             return;
         }
 
@@ -521,7 +570,7 @@ export function activate(context: vscode.ExtensionContext) {
                         { task: 'summarize_node', model, system: '', messages: [{ role: 'user', content: 'Hi' }], responseSchema: { type: 'object', properties: {} }, maxOutputTokens: 16, temperature: 0, topP: 1, toolMode: 'none', parallelToolCalls: false, metadata: { promptVersion: 'test', docFingerprint: 'test', headNodeId: 0, baseSeq: 0 } },
                         key, url
                     );
-                default:
+                case 'custom-http-json':
                     return buildCustomHttpJsonRequest(
                         { task: 'summarize_node', model, system: '', messages: [{ role: 'user', content: 'Hi' }], responseSchema: { type: 'object', properties: {} }, maxOutputTokens: 16, temperature: 0, topP: 1, toolMode: 'none', parallelToolCalls: false, metadata: { promptVersion: 'test', docFingerprint: 'test', headNodeId: 0, baseSeq: 0 } },
                         key, url
@@ -529,17 +578,24 @@ export function activate(context: vscode.ExtensionContext) {
             }
         };
 
+        const controller = new AbortController();
+        const timeoutMs = 30000;
+        const timeoutId = setTimeout(() => {
+            try { controller.abort('Connection timeout'); } catch { /* ignore */ }
+        }, timeoutMs);
+
         try {
             const httpReq = buildRequest(baseUrl, apiKey);
             const response = await fetch(httpReq.url, {
                 method: httpReq.method,
                 headers: httpReq.headers,
                 body: httpReq.body,
+                signal: controller.signal,
             });
 
-            const text = await response.text();
-            const firstChars = text.substring(0, 120);
-            outputChannel.appendLine(`CtrlZTree: Test connection ${provider} status=${response.status} body=${firstChars}`);
+            clearTimeout(timeoutId);
+
+            outputChannel.appendLine(`CtrlZTree: Test connection ${provider} status=${response.status}`);
 
             if (response.ok) {
                 vscode.window.showInformationMessage(`CtrlZTree: Connection to ${provider} (${model}) successful ✓`);
@@ -549,8 +605,14 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showWarningMessage(`CtrlZTree: Server returned ${response.status}. Provider may not support this model or endpoint.`);
             }
         } catch (e: any) {
-            outputChannel.appendLine(`CtrlZTree: Test connection error: ${e.message}`);
-            vscode.window.showErrorMessage(`CtrlZTree: Connection failed: ${e.message}`);
+            clearTimeout(timeoutId);
+            const redactedErr = redactSensitiveData(e.message || 'Unknown error');
+            outputChannel.appendLine(`CtrlZTree: Test connection error: ${redactedErr.redacted}`);
+            if (e.name === 'AbortError' || (e.message && e.message.includes('timeout'))) {
+                vscode.window.showErrorMessage(`CtrlZTree: Connection timed out after ${timeoutMs / 1000}s. Check your network and endpoint.`);
+            } else {
+                vscode.window.showErrorMessage(`CtrlZTree: Connection failed: ${redactedErr.redacted.substring(0, 200)}`);
+            }
         }
     });
 
@@ -569,6 +631,10 @@ export function deactivate() {
     extensionState.lastCursorPosition.clear();
     extensionState.lastChangeType.clear();
     extensionState.processingDocuments.clear();
+    if (extensionState.editTokens) {
+        extensionState.editTokens.clear();
+        extensionState.editTokens = null;
+    }
 }
 
 async function applyTreeStateToDocument(

@@ -182,7 +182,8 @@ suite('AiResponseValidator', () => {
 			operationPlan: [], warnings: [],
 		}, proj);
 
-		assert.ok(result.warnings.some(w => w.includes('unknown')));
+		assert.ok(result.errors.some(e => e.includes('unknown')), `Expected error about unknown node, got: ${JSON.stringify(result.errors)}`);
+		assert.strictEqual(result.valid, false);
 	});
 
 	test('rejects operation targeting head node', () => {

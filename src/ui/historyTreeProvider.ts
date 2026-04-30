@@ -55,6 +55,10 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 		this._onDidChangeTreeData.fire();
 	}
 
+	refresh(): void {
+		this._onDidChangeTreeData.fire();
+	}
+
 	getTreeItem(element: HistoryTreeItem): vscode.TreeItem {
 		return element;
 	}
@@ -98,7 +102,9 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryTreeI
 			const childContent = this.tree.getContent(childHash);
 			const shortHash = childHash.substring(0, 8);
 			const preview = childContent.length > 40 ? childContent.substring(0, 37) + '...' : childContent;
-			const isBranchTip = node.children.length > 1;
+			const childNode = allNodes.get(childHash);
+			const childChildren = childNode?.children ?? [];
+			const isBranchTip = childChildren.length === 0;
 			items.push(new HistoryTreeItem(
 				childHash,
 				`${shortHash}: ${preview}`,

@@ -119,5 +119,40 @@ MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...
 			assert.strictEqual(redacted.temperature, 0.7);
 			assert.strictEqual(redacted.max_tokens, 100);
 		});
+
+		test('redacts camelCase sensitive keys', () => {
+			const body = {
+				clientSecret: 'camel-secret-value',
+				accessToken: 'camel-token-value',
+				refreshToken: 'camel-refresh-value',
+				privateKey: 'camel-key-value',
+			};
+			const redacted = redactRequestData(body);
+			assert.strictEqual(redacted.clientSecret, '[REDACTED]');
+			assert.strictEqual(redacted.accessToken, '[REDACTED]');
+			assert.strictEqual(redacted.refreshToken, '[REDACTED]');
+			assert.strictEqual(redacted.privateKey, '[REDACTED]');
+		});
+
+		test('redacts case-insensitive header keys', () => {
+			const body = {
+				Authorization: 'Bearer token123',
+				authorization: 'Bearer token456',
+				'Set-Cookie': 'session=abc',
+			};
+			const redacted = redactRequestData(body);
+			assert.strictEqual(redacted.Authorization, '[REDACTED]');
+			assert.strictEqual(redacted.authorization, '[REDACTED]');
+			assert.strictEqual(redacted['Set-Cookie'], '[REDACTED]');
+		});
+
+		test('handles cyclic objects without stack overflow', () => {
+			const body: Record<string, unknown> = { key: 'value' };
+			body.self = body;
+			const redacted = redactRequestData(body);
+			const selfVal = redacted.self as Record<string, unknown>;
+			assert.ok(selfVal && typeof selfVal === 'object');
+			assert.ok(('[CYCLIC]' in selfVal));
+		});
 	});
 });

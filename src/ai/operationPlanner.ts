@@ -43,7 +43,10 @@ export function validateAiResponse(
 
 	// 2. baseSeq check
 	const baseSeq = r.baseSeq as number;
-	const staleBaseSeq = typeof baseSeq === 'number' && baseSeq !== projection.lastSeq;
+	if (typeof baseSeq !== 'number' || !Number.isInteger(baseSeq) || baseSeq < -1) {
+		errors.push(`Missing or invalid baseSeq: ${r.baseSeq}`);
+	}
+	const staleBaseSeq = typeof baseSeq === 'number' && Number.isInteger(baseSeq) && baseSeq >= 0 && baseSeq !== projection.lastSeq;
 	if (staleBaseSeq) {
 		errors.push(`Stale baseSeq: response has ${baseSeq}, projection is at ${projection.lastSeq}`);
 	}
@@ -59,7 +62,10 @@ export function validateAiResponse(
 				continue;
 			}
 			if (!projection.byId.has(update.nodeId)) {
-				warnings.push(`nodeUpdate references unknown node #${update.nodeId}`);
+				errors.push(`nodeUpdate references unknown node #${update.nodeId}`);
+			}
+			if (update.nodeId === projection.rootId) {
+				errors.push(`nodeUpdate references root node #${update.nodeId} - rejected`);
 			}
 			if (projection.deletedNodes.has(update.nodeId)) {
 				errors.push(`nodeUpdate references hard-deleted node #${update.nodeId}`);

@@ -453,7 +453,7 @@ export function createWebviewManager({
             return filled;
         } catch (e: any) {
             outputChannel.appendLine(`CtrlZTree: Failed to load webview template: ${e.message}`);
-            return `<!doctype html><html><body><pre>Failed to load webview template: ${e.message}</pre></body></html>`;
+            return `<!doctype html><html><body><pre>Failed to load webview template: ${escapeHtml(e.message || 'Unknown error')}</pre></body></html>`;
         }
     }
 

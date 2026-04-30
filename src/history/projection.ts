@@ -70,7 +70,18 @@ export function project(docId: DocId, events: HistoryEvent[]): Projection {
 
 	proj.lastSeq = events[events.length - 1].seq;
 
+	let prevSeq = -1;
 	for (const event of events) {
+		// Validate seq monotonic
+		if (event.seq <= prevSeq) {
+			proj.diagnostics.push({
+				severity: 'error',
+				message: `Non-monotonic event seq: ${event.seq} after ${prevSeq}`,
+				eventSeq: event.seq
+			});
+		}
+		prevSeq = event.seq;
+
 		switch (event.kind) {
 			case 'init':
 				handleInit(proj, event);
@@ -151,6 +162,24 @@ function handleEdit(proj: Projection, e: EditEvent): void {
 		return;
 	}
 
+	if (proj.byId.has(e.nodeId)) {
+		proj.diagnostics.push({
+			severity: 'error',
+			message: `Duplicate nodeId ${e.nodeId} in edit event (already exists)`,
+			eventSeq: e.seq
+		});
+		return;
+	}
+
+	if (!proj.byId.has(e.parentId) && e.parentId !== proj.rootId) {
+		proj.diagnostics.push({
+			severity: 'error',
+			message: `Edit event parent ${e.parentId} does not exist`,
+			eventSeq: e.seq
+		});
+		return;
+	}
+
 	const view: NodeView = {
 		nodeId: e.nodeId,
 		contentHash: e.contentHash,
@@ -163,11 +192,6 @@ function handleEdit(proj: Projection, e: EditEvent): void {
 	const children = proj.childrenOf.get(e.parentId) ?? [];
 	children.push(e.nodeId);
 	proj.childrenOf.set(e.parentId, children);
-
-	// Ensure parent has children list if not already
-	if (!proj.childrenOf.has(e.parentId)) {
-		// Parent might be root created by init
-	}
 
 	addToContentHashIndex(proj, e.contentHash, e.nodeId);
 	proj.headId = e.nodeId;

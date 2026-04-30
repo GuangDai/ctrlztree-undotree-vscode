@@ -56,7 +56,8 @@ export function buildOpenAIChatCompatibleRequest(
 
 export function parseOpenAIChatCompatibleResponse(
 	status: number,
-	body: string
+	body: string,
+	strictSchema?: boolean
 ): ProviderResponse {
 	if (status !== 200) {
 		let errorMsg = `HTTP ${status}`;
@@ -102,7 +103,11 @@ export function parseOpenAIChatCompatibleResponse(
 			};
 		}
 	} catch {
-		// Content is plain text, return as summary
+		// Content is plain text, not structured JSON
+	}
+
+	if (strictSchema) {
+		return { ok: false, error: 'Expected structured JSON response but received plain text', statusCode: status, retryable: false };
 	}
 
 	return {

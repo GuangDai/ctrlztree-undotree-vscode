@@ -28,7 +28,7 @@ export function generatePrunePlan(
 	projection: Projection,
 	policy: PruningPolicy = DEFAULT_PRUNING_POLICY
 ): PrunePlan {
-	const { byId, headId, rootId, parentOf, childrenOf, branchTips, protectedNodes, archivedNodes, deletedNodes } = projection;
+	const { byId, headId, rootId, parentOf, childrenOf, branchTips, protectedNodes, archivedNodes, deletedNodes, namedNodes } = projection;
 
 	// Early return when not exceeding threshold
 	if (byId.size <= policy.maxNodes) {
@@ -60,10 +60,9 @@ export function generatePrunePlan(
 		cursor = parent ?? null;
 	}
 
-	// Priority 2: Protected nodes
+	// Priority 2: Protected nodes and their paths
 	for (const id of protectedNodes) {
 		keep.add(id);
-		// Also keep their path to root
 		let c: NodeId | null = id;
 		while (c !== null) {
 			keep.add(c);
@@ -72,7 +71,20 @@ export function generatePrunePlan(
 		}
 	}
 
-	// Priority 3: Most recent branch tips
+	// Priority 2b: Named nodes and their paths
+	for (const id of namedNodes) {
+		if (!keep.has(id)) {
+			keep.add(id);
+			let c: NodeId | null = id;
+			while (c !== null) {
+				keep.add(c);
+				const parent = parentOf.get(c);
+				c = parent ?? null;
+			}
+		}
+	}
+
+	// Priority 3: Most recent branch tips (also preserve their root paths)
 	const sortedBranchTips = [...branchTips]
 		.filter(id => !keep.has(id) && !deletedNodes.has(id))
 		.sort((a, b) => {
@@ -82,7 +94,14 @@ export function generatePrunePlan(
 		});
 
 	for (let i = 0; i < Math.min(policy.keepBranchTips, sortedBranchTips.length); i++) {
-		keep.add(sortedBranchTips[i]);
+		const tipId = sortedBranchTips[i];
+		keep.add(tipId);
+		// Also keep the path to root for each kept tip
+		let c: NodeId | null = parentOf.get(tipId) ?? null;
+		while (c !== null) {
+			keep.add(c);
+			c = parentOf.get(c) ?? null;
+		}
 	}
 
 	// Priority 4: Recent time window nodes

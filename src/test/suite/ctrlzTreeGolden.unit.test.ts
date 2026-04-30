@@ -162,7 +162,7 @@ suite('CtrlZTree Golden Tests', () => {
 	});
 
 	suite('Pruning', () => {
-		test('pruneToMaxNodes removes non-head-path nodes', () => {
+		test('pruneToMaxNodes is now a no-op (hard delete disabled)', () => {
 			const tree = new CtrlZTree('v1');
 			// Create many branches off root
 			for (let i = 0; i < 30; i++) {
@@ -172,7 +172,9 @@ suite('CtrlZTree Golden Tests', () => {
 			tree.set('final'); // last head
 			const countBefore = tree.getNodeCount();
 			tree.pruneToMaxNodes(10);
-			assert.ok(tree.getNodeCount() <= 10);
+			// Legacy hard-prune is disabled: no nodes should be deleted
+			assert.strictEqual(tree.getNodeCount(), countBefore);
+			assert.ok(countBefore > 10, 'tree should have more than 10 nodes');
 		});
 
 		test('head path is preserved during pruning', () => {

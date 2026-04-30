@@ -259,37 +259,17 @@ export class CtrlZTree {
         return this.nodes.size;
     }
 
+    /**
+     * @deprecated Hard deletion of nodes from the tree is permanently disabled.
+     * This method now emits a warning and performs no deletion.
+     * Use the PruningEngine + OperationPlan model (archive-first) instead.
+     */
     public pruneToMaxNodes(maxNodes: number): void {
         if (this.nodes.size <= maxNodes) {return;}
-
-        const nodesToKeep = new Set<string>();
-
-        let currentHash = this.head;
-        while (currentHash) {
-            nodesToKeep.add(currentHash);
-            const node = this.nodes.get(currentHash);
-            if (!node || node.parent === null) {break;}
-            currentHash = node.parent;
-        }
-
-        if (nodesToKeep.size < maxNodes) {
-            const allNodes = Array.from(this.nodes.entries());
-            const sortedByTime = allNodes.sort((a, b) => b[1].timestamp - a[1].timestamp);
-
-            for (const [hash] of sortedByTime) {
-                if (nodesToKeep.size >= maxNodes) {break;}
-                nodesToKeep.add(hash);
-            }
-        }
-
-        for (const hash of this.nodes.keys()) {
-            if (!nodesToKeep.has(hash)) {
-                this.nodes.delete(hash);
-            }
-        }
-
-        for (const node of this.nodes.values()) {
-            node.children = node.children.filter(child => this.nodes.has(child));
-        }
+        console.warn(
+            `CtrlZTree: pruneToMaxNodes(${maxNodes}) called but legacy hard-prune is permanently disabled. ` +
+            `Tree has ${this.nodes.size} nodes. Use the new PruningEngine for safe archive-based pruning.`
+        );
+        return;
     }
 }

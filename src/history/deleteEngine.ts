@@ -50,13 +50,19 @@ export function generateDeletePlan(
 	}
 
 	// Check for children that would become orphaned
+	let hasOrphanedChildren = false;
 	for (const id of targetIds) {
 		const nodeChildren = childrenOf.get(id) ?? [];
 		for (const childId of nodeChildren) {
 			if (!targetIds.includes(childId)) {
 				warnings.push(`Deleting node ${id} will orphan child ${childId}`);
+				hasOrphanedChildren = true;
 			}
 		}
+	}
+
+	if (hasOrphanedChildren) {
+		return { targetIds, mode, estimatedBytesFreed: 0, warnings, valid: false, requiresConfirmation: true };
 	}
 
 	// For branch delete, find shared ancestor (lowest common ancestor not being deleted)

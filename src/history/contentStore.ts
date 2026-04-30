@@ -36,7 +36,7 @@ export class MemoryContentStore {
 	private nodeCount = 0;
 
 	constructor(maxCacheEntries = 64) {
-		this.maxCacheEntries = maxCacheEntries;
+		this.maxCacheEntries = Math.max(1, maxCacheEntries);
 	}
 
 	appendEdit(parentContent: string, nextContent: string, nodeId: NodeId, policy: SnapshotPolicy = DEFAULT_SNAPSHOT_POLICY): ContentRef {
@@ -85,8 +85,13 @@ export class MemoryContentStore {
 
 		// Walk from nodeId to root, collecting diffs
 		const path: NodeId[] = [];
+		const visited = new Set<NodeId>();
 		let current = nodeId;
 		while (current !== undefined) {
+			if (visited.has(current)) {
+				return null; // cycle detected in projection graph
+			}
+			visited.add(current);
 			const parent = projection.parentOf.get(current);
 			if (parent === undefined) {
 				return null; // node not in projection

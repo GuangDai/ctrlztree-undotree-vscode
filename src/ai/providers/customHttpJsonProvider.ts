@@ -39,7 +39,8 @@ export function buildCustomHttpJsonRequest(
 
 export function parseCustomHttpJsonResponse(
 	status: number,
-	body: string
+	body: string,
+	strictSchema?: boolean
 ): ProviderResponse {
 	if (status < 200 || status >= 300) {
 		let errorMsg = `HTTP ${status}`;
@@ -78,6 +79,9 @@ export function parseCustomHttpJsonResponse(
 			const structured = JSON.parse(content);
 			return normalizeResponse(structured);
 		} catch {
+			if (strictSchema) {
+				return { ok: false, error: 'Expected structured JSON response but received plain text', statusCode: status, retryable: false };
+			}
 			return {
 				version: '1', task: 'summarize_node', baseSeq: 0,
 				nodeUpdates: [{ nodeId: 0, summary: content }],

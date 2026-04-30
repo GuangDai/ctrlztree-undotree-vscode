@@ -12,20 +12,28 @@ const REDACTION_PATTERNS: Array<{ name: string; pattern: RegExp; replacement: st
 	{ name: 'env_secret', pattern: /(DB_PASSWORD|DATABASE_PASSWORD|REDIS_PASSWORD|MONGO_URI|AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|GOOGLE_APPLICATION_CREDENTIALS|GCP_KEY|AZURE_STORAGE_KEY|AZURE_CLIENT_SECRET|CLOUDFLARE_API_KEY|DOCKER_PASSWORD)\s*=\s*[^\n\r]*/gi, replacement: '$1=[REDACTED]' },
 
 	// PEM private key block
-	{ name: 'pem_private_key', pattern: /-----BEGIN[^-]*PRIVATE KEY-----[^-]*-----END[^-]*PRIVATE KEY-----/gs, replacement: '-----BEGIN PRIVATE KEY-----[REDACTED]-----END PRIVATE KEY-----' },
+	{ name: 'pem_private_key', pattern: /-----BEGIN .*?PRIVATE KEY-----[\s\S]*?-----END .*?PRIVATE KEY-----/g, replacement: '-----BEGIN PRIVATE KEY-----[REDACTED]-----END PRIVATE KEY-----' },
 
 	// API key header (X-Api-Key, X-API-Key, api-key, apikey)
 	{ name: 'api_key_header', pattern: /(?:X-Api-Key|X-API-Key|api-key|apikey):\s*[^\n\r]*/gi, replacement: 'X-Api-Key: [REDACTED]' },
 ];
 
 const SENSITIVE_KEYS = new Set([
-	'apikey', 'api_key', 'api-key', 'apikey', 'apiKey',
-	'secret', 'client_secret', 'clientSecret',
+	'apikey', 'api_key', 'api-key',
+	'secret', 'client_secret', 'clientsecret',
 	'password', 'passwd', 'pwd',
-	'token', 'access_token', 'accessToken', 'refresh_token', 'refreshToken',
+	'token', 'access_token', 'accesstoken', 'refresh_token', 'refreshtoken',
 	'authorization', 'auth',
-	'private_key', 'privateKey', 'secret_key', 'secretKey',
+	'private_key', 'privatekey', 'secret_key', 'secretkey',
 	'credential', 'credentials',
+	'cookie', 'set-cookie', 'set_cookie', 'setcookie',
+	'proxy-authorization', 'proxy_authorization', 'proxyauthorization',
+]);
+
+const SENSITIVE_HEADERS_LOWER = new Set([
+	'authorization', 'proxy-authorization', 'proxy_authorization',
+	'cookie', 'set-cookie',
+	'x-api-key', 'x-api-key', 'apikey', 'api-key',
 ]);
 
 export interface RedactionResult {
@@ -52,10 +60,21 @@ export function redactSensitiveData(text: string): RedactionResult {
 }
 
 export function redactRequestData(body: Record<string, unknown>): Record<string, unknown> {
+	const seen = new WeakSet<object>();
+	return redactRequestDataInternal(body, seen);
+}
+
+function redactRequestDataInternal(body: Record<string, unknown>, seen: WeakSet<object>): Record<string, unknown> {
+	if (seen.has(body)) {
+		return { '[CYCLIC]': '[CYCLIC]' };
+	}
+	seen.add(body);
+
 	const redacted: Record<string, unknown> = {};
 
 	for (const [key, value] of Object.entries(body)) {
-		const isSensitiveKey = SENSITIVE_KEYS.has(key.toLowerCase());
+		const keyLower = key.toLowerCase();
+		const isSensitiveKey = SENSITIVE_KEYS.has(keyLower) || SENSITIVE_HEADERS_LOWER.has(keyLower);
 
 		if (typeof value === 'string') {
 			if (isSensitiveKey) {
@@ -70,12 +89,12 @@ export function redactRequestData(body: Record<string, unknown>): Record<string,
 					return redactSensitiveData(item).redacted;
 				}
 				if (typeof item === 'object' && item !== null) {
-					return redactRequestData(item as Record<string, unknown>);
+					return redactRequestDataInternal(item as Record<string, unknown>, seen);
 				}
 				return item;
 			});
 		} else if (typeof value === 'object' && value !== null) {
-			redacted[key] = redactRequestData(value as Record<string, unknown>);
+			redacted[key] = redactRequestDataInternal(value as Record<string, unknown>, seen);
 		} else {
 			redacted[key] = value;
 		}

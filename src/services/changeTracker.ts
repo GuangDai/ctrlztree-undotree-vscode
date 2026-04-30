@@ -4,17 +4,20 @@ import { ExtensionState, ChangeType } from '../state/extensionState';
 import { WebviewManager } from '../webview/webviewManager';
 import { DIFF_SCHEME } from '../constants';
 import { ApplyEditTokenSet } from '../concurrency/applyEditTokens';
+import { HistoryController } from '../history/historyController';
 
 interface ChangeTrackerDeps {
     context: vscode.ExtensionContext;
     outputChannel: vscode.OutputChannel;
     state: ExtensionState;
     getOrCreateTree: (document: vscode.TextDocument) => CtrlZTree;
+    getOrCreateController?: (document: vscode.TextDocument) => HistoryController;
     webviewManager: WebviewManager;
     editTokens: ApplyEditTokenSet;
     setLastValidEditorUri: (uri: string | null) => void;
     actionTimeout: number;
     pauseThreshold: number;
+    onDocumentCommitted?: (docUri: string, tree: CtrlZTree) => void;
 }
 
 const WHITESPACE_FLUSH_DELAY = 500; // 500 ms
@@ -115,7 +118,15 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         const docUriString = document.uri.toString();
 
         if (processingDocuments.has(docUriString)) {
-            outputChannel.appendLine(`CtrlZTree: processDocumentChange - skipping ${docUriString} due to ongoing processing.`);
+            outputChannel.appendLine(`CtrlZTree: processDocumentChange - rescheduling ${docUriString} due to ongoing processing.`);
+            pendingChanges.set(docUriString, content);
+            const timeout = setTimeout(() => {
+                const pendingContent = pendingChanges.get(docUriString);
+                if (pendingContent !== undefined) {
+                    processDocumentChange(document, pendingContent);
+                }
+            }, 50);
+            documentChangeTimeouts.set(docUriString, timeout);
             return;
         }
 
@@ -132,8 +143,23 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
                     cursorPosition = editor.selection.active;
                 }
 
-                tree.set(content, cursorPosition);
+                const controller = deps.getOrCreateController?.(document);
+                if (controller) {
+                    controller.commit(content, cursorPosition)
+                        .then(() => {
+                            outputChannel.appendLine('CtrlZTree: Document changed and processed via HistoryController (debounced).');
+                        })
+                        .catch((err: Error) => {
+                            outputChannel.appendLine(`CtrlZTree: HistoryController commit error: ${err.message}`);
+                        });
+                } else {
+                    tree.set(content, cursorPosition);
+                }
                 outputChannel.appendLine('CtrlZTree: Document changed and processed (debounced).');
+
+                if (deps.onDocumentCommitted) {
+                    deps.onDocumentCommitted(docUriString, tree);
+                }
 
                 const panel = activeVisualizationPanels.get(docUriString);
                 if (panel) {

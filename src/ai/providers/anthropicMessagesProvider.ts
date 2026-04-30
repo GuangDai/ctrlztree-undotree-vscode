@@ -47,7 +47,8 @@ export function buildAnthropicMessagesRequest(
 
 export function parseAnthropicMessagesResponse(
 	status: number,
-	body: string
+	body: string,
+	strictSchema?: boolean
 ): ProviderResponse {
 	if (status !== 200) {
 		let errorMsg = `HTTP ${status}`;
@@ -110,6 +111,10 @@ export function parseAnthropicMessagesResponse(
 			}
 		} catch {
 			// Plain text summary
+		}
+
+		if (strictSchema) {
+			return { ok: false, error: 'Expected structured JSON response but received plain text', statusCode: status, retryable: false };
 		}
 
 		return {

@@ -6,4 +6,16 @@ export const CONFIG_DEFAULTS = {
 	maxHistoryNodesPerDocumentMax: 100000,
 	maxTrackedDocumentsMin: 1,
 	maxTrackedDocumentsMax: 10000,
+	ai: {
+		validProviders: ['openai-chat-compatible', 'openai-responses', 'anthropic-messages', 'custom-http-json'] as const,
+		defaultProvider: 'openai-chat-compatible' as const,
+		defaultEnabled: false,
+		defaultModel: '',
+		defaultBaseUrl: '',
+		defaultTimeoutMs: 30000,
+		defaultMaxRetries: 2,
+		defaultMaxOutputTokens: 512,
+		defaultTemperature: 0.2,
+		defaultTopP: 1,
+	}
 };
