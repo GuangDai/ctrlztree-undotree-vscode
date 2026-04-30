@@ -116,7 +116,7 @@ export class HistoryController {
 	}
 
 	async commit(content: string, cursor?: vscode.Position): Promise<CommitResult> {
-		return this.queue.enqueue(this.docId, 'commit', async () => {
+		return this.queue.enqueue(this.docId, 'commit', async (token) => {
 			const oldContent = this.tree.getContent();
 			const cursorPos: Cursor | undefined = cursor ? { line: cursor.line, character: cursor.character } : undefined;
 			const newHash = this.tree.set(content, cursor);
@@ -179,7 +179,7 @@ export class HistoryController {
 	}
 
 	async undo(): Promise<NavigateResult> {
-		return this.queue.enqueue(this.docId, 'undo', async () => {
+		return this.queue.enqueue(this.docId, 'undo', async (token) => {
 			const oldHeadHash = this.tree.getHead();
 			const parentHash = this.tree.peekUndo();
 			if (!parentHash) {
@@ -208,7 +208,7 @@ export class HistoryController {
 	}
 
 	async redo(childHash?: string): Promise<NavigateResult> {
-		return this.queue.enqueue(this.docId, 'redo', async () => {
+		return this.queue.enqueue(this.docId, 'redo', async (token) => {
 			const oldHeadHash = this.tree.getHead();
 			let result: string | string[];
 			if (childHash) {
@@ -240,7 +240,7 @@ export class HistoryController {
 	}
 
 	async checkout(hash: string): Promise<{ success: boolean; content: string | null }> {
-		return this.queue.enqueue(this.docId, 'checkout', async () => {
+		return this.queue.enqueue(this.docId, 'checkout', async (token) => {
 			const oldHeadHash = this.tree.getHead();
 			const success = this.tree.setHead(hash);
 			if (success) {
