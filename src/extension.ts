@@ -350,6 +350,10 @@ export function activate(context: vscode.ExtensionContext) {
             clearTimeout(timeout);
             extensionState.documentChangeTimeouts.delete(key);
         }
+
+        // Clean up any lingering edit tokens for this document
+        editTokens.clearForDoc(key);
+        extensionState.rescheduleRetryCounts?.delete(key);
     });
 
     // Listen for new files opening to track them immediately

@@ -41,6 +41,10 @@ export class ApplyEditTokenSet {
 		return this.tokens.get(docId)?.size ?? 0;
 	}
 
+	clearForDoc(docId: string): void {
+		this.tokens.delete(docId);
+	}
+
 	clear(): void {
 		this.tokens.clear();
 	}
