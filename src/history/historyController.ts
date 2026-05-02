@@ -486,12 +486,16 @@ export class HistoryController {
 		if (this.contentStore) {
 			const proj = this.projection;
 			contentEntries = [];
-			// Walk from head upward, collecting snapshots for the head-path chain
+			// Walk from head upward, collecting anchor snapshots for the head-path chain.
+			// Take snapshots at regular intervals so deep chains can be resolved in
+			// segments even if some intermediate entries are evicted.
 			let cursor: number | null = proj.headId;
 			let depth = 0;
 			const maxDepth = 64;
+			const anchorInterval = 16;
 			while (cursor !== null && depth < maxDepth) {
-				if (this.contentStore.hasSnapshot(cursor)) {
+				const shouldAnchor = depth % anchorInterval === 0 || depth === 0;
+				if (shouldAnchor || this.contentStore.hasSnapshot(cursor)) {
 					const content = this.contentStore.resolve(cursor, proj);
 					if (content !== null) {
 						contentEntries.push({ nodeId: cursor, content });
@@ -499,6 +503,10 @@ export class HistoryController {
 				}
 				cursor = proj.parentOf.get(cursor) ?? null;
 				depth++;
+			}
+			if (cursor !== null) {
+				this.log?.warn("CtrlZTree: flushToDisk truncated at depth " + maxDepth + " for " + this.docId + "; " +
+					"anchored every " + anchorInterval + " nodes to preserve chain resolution");
 			}
 		}
 		const result = await this.persistenceService.saveDocument(
