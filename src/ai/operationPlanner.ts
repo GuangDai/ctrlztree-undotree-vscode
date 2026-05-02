@@ -1,4 +1,4 @@
-import { NodeUpdate, OperationPlanItem } from './types';
+import { NodeUpdate, OperationPlanItem, SENTINEL_NO_NODE } from './types';
 import { Projection } from '../history/projection';
 
 export interface AiValidationResult {
@@ -63,7 +63,7 @@ export function validateAiResponse(
 			if (!projection.byId.has(update.nodeId)) {
 				errors.push(`nodeUpdate references unknown node #${update.nodeId}`);
 			}
-			if (update.nodeId === projection.rootId) {
+			if (update.nodeId !== SENTINEL_NO_NODE && update.nodeId === projection.rootId) {
 				errors.push(`nodeUpdate references root node #${update.nodeId} - rejected`);
 			}
 			if (projection.deletedNodes.has(update.nodeId)) {

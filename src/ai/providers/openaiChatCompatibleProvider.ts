@@ -114,7 +114,7 @@ export function parseOpenAIChatCompatibleResponse(
 		version: '1',
 		task: 'summarize_node',
 		baseSeq: 0,
-		nodeUpdates: [{ nodeId: 0, summary: content }],
+		nodeUpdates: [{ nodeId: -1, summary: content }],
 		operationPlan: [],
 		warnings: [],
 	};

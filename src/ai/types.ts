@@ -1,6 +1,10 @@
 import { NodeId, EventSeq } from '../history/ids';
 import { Projection } from '../history/projection';
 
+// Sentinel nodeId used when the AI response doesn't target a specific node
+// (e.g., plain-text responses). Value -1 avoids collision with root nodeId 0.
+export const SENTINEL_NO_NODE = -1;
+
 export type AiTask =
 	| 'rename_node'
 	| 'summarize_node'

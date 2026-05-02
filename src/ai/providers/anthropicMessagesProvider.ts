@@ -121,7 +121,7 @@ export function parseAnthropicMessagesResponse(
 			version: '1',
 			task: 'summarize_node',
 			baseSeq: 0,
-			nodeUpdates: [{ nodeId: 0, summary: textContent.text }],
+			nodeUpdates: [{ nodeId: -1, summary: textContent.text }],
 			operationPlan: [],
 			warnings: [],
 		};

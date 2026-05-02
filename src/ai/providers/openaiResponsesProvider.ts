@@ -119,7 +119,7 @@ export function parseOpenAIResponsesResponse(
 		version: '1',
 		task: 'summarize_node',
 		baseSeq: 0,
-		nodeUpdates: [{ nodeId: 0, summary: content.trim() }],
+		nodeUpdates: [{ nodeId: -1, summary: content.trim() }],
 		operationPlan: [],
 		warnings: [],
 	};
