@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { CtrlZTree } from '../model/ctrlZTree';
 import { ExtensionState, ChangeType } from '../state/extensionState';
-import { WebviewManager } from '../webview/webviewManager';
 import { DIFF_SCHEME } from '../constants';
 import { ApplyEditTokenSet } from '../concurrency/applyEditTokens';
 import { HistoryController } from '../history/historyController';
@@ -13,7 +12,6 @@ interface ChangeTrackerDeps {
     state: ExtensionState;
     getOrCreateTree: (document: vscode.TextDocument) => CtrlZTree;
     getOrCreateController?: (document: vscode.TextDocument) => Promise<HistoryController>;
-    webviewManager: WebviewManager;
     editTokens: ApplyEditTokenSet;
     setLastValidEditorUri: (uri: string | null) => void;
     actionTimeout: number;
@@ -30,18 +28,17 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         context,
         state,
         getOrCreateTree,
-        webviewManager,
         editTokens,
         setLastValidEditorUri,
         actionTimeout,
         pauseThreshold
     } = deps;
 
-    const log = new Logger(deps.outputChannel);
+    const log = new Logger(deps.outputChannel, 'services.changeTracker');
     const logLevel = vscode.workspace.getConfiguration('ctrlztree').get<string>('logging.level', 'info') as any;
     log.setLevel(logLevel || 'info');
 
-    const { documentChangeTimeouts, pendingChanges, lastChangeTime, lastCursorPosition, lastChangeType, processingDocuments, activeVisualizationPanels } = state;
+    const { documentChangeTimeouts, pendingChanges, lastChangeTime, lastCursorPosition, lastChangeType, processingDocuments } = state;
 
     const subscription = vscode.workspace.onDidChangeTextDocument(async event => {
         const docUriString = event.document.uri.toString();
@@ -94,7 +91,9 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         }
 
         if (separatorTrigger === 'newline') {
-            processDocumentChange(event.document, currentText);
+            processDocumentChange(event.document, currentText).catch(err => {
+                log.error(`CtrlZTree: newline flush error: ${err?.message || 'Unknown'}`);
+            });
             log.debug(`CtrlZTree: newline flush due to newline separator for ${docUriString}.`);
             return;
         }
@@ -105,7 +104,13 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         const newTimeout = setTimeout(() => {
             const pendingContent = pendingChanges.get(docUriString);
             if (pendingContent !== undefined) {
-                processDocumentChange(event.document, pendingContent);
+                // Re-fetch document by URI in case the original reference went stale (e.g., tab closed/reopened)
+                const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === docUriString);
+                if (doc && !doc.isClosed) {
+                    processDocumentChange(doc, pendingContent).catch(err => {
+                        log.error(`CtrlZTree: timeout flush error: ${err?.message || 'Unknown'}`);
+                    });
+                }
             }
             documentChangeTimeouts.delete(docUriString);
         }, delay);
@@ -139,7 +144,13 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
             const timeout = setTimeout(() => {
                 const pendingContent = pendingChanges.get(docUriString);
                 if (pendingContent !== undefined) {
-                    processDocumentChange(document, pendingContent);
+                    // Re-fetch document in case the original reference went stale
+                    const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === docUriString);
+                    if (doc && !doc.isClosed) {
+                        processDocumentChange(doc, pendingContent).catch(err => {
+                            log.error(`CtrlZTree: reschedule flush error: ${err?.message || 'Unknown'}`);
+                        });
+                    }
                 }
             }, RESCHEDULE_DELAY);
             documentChangeTimeouts.set(docUriString, timeout);
@@ -162,7 +173,7 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
                 const controller = await deps.getOrCreateController?.(document);
                 if (controller) {
                     try {
-                        await controller.commit(content, cursorPosition);
+                        await controller.commit(content, cursorPosition ? { line: cursorPosition.line, character: cursorPosition.character } : undefined);
                         log.info('CtrlZTree: Document changed and processed via HistoryController (debounced).');
                     } catch (err: any) {
                         log.error(`CtrlZTree: HistoryController commit error: ${err.message}`);
@@ -176,19 +187,11 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
                     deps.onDocumentCommitted(docUriString, tree);
                 }
 
-                const panel = activeVisualizationPanels.get(docUriString);
-                if (panel) {
-                    webviewManager.postUpdatesToWebview(panel, tree, docUriString);
-                    log.debug(`CtrlZTree: panel updated ${docUriString} updated after file change.`);
-                } else {
-                    log.debug(`CtrlZTree: no panel for ${docUriString} on file change.`);
-                }
             } else {
                 log.debug('CtrlZTree: content matches tree - skipping update.');
             }
         } catch (e: any) {
             log.error(`CtrlZTree: processDocumentChange error: ${e.message} Stack: ${e.stack}`);
-            vscode.window.showErrorMessage(`CtrlZTree processDocumentChange error: ${e.message}`);
         } finally {
             processingDocuments.delete(docUriString);
             pendingChanges.delete(docUriString);
