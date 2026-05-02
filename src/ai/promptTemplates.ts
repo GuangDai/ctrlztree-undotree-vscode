@@ -104,6 +104,16 @@ Task: Identify nodes safe for deletion. NEVER target: head node, root node (0), 
 
 Example response:
 {"task":"propose_delete","baseSeq":5,"nodeUpdates":[],"operationPlan":[{"operation":"delete","targetIds":[8],"reason":"Abandoned branch, 6 hours old, no descendants","risk":"medium","requiresConfirmation":true}],"warnings":[]}`,
+	annotate_node: `${PREAMBLE}
+
+${JSON_FORMAT}
+
+Task: Generate both a short descriptive name (1-6 words) and a concise summary (1-3 sentences) for a history node based on its diff.
+The name should describe the purpose of the change.
+The summary should capture what changed and why.
+
+Example response:
+{"task":"annotate_node","baseSeq":5,"nodeUpdates":[{"nodeId":5,"name":"Add user authentication","summary":"Added login form and auth middleware to protect API routes"}],"operationPlan":[],"warnings":[]}`,
 };
 
 // ---- User message builder ----

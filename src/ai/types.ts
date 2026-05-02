@@ -31,7 +31,8 @@ export type AiTask =
     | 'summarize_branch'
     | 'propose_merge'
     | 'propose_prune'
-    | 'propose_delete';
+    | 'propose_delete'
+    | 'annotate_node';
 
 export interface JsonSchema {
     type: 'object';

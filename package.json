@@ -211,6 +211,18 @@
           "maximum": 5,
           "description": "Maximum number of retries for failed AI requests"
         },
+        "ctrlztree.ai.autoRename.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically rename history nodes using AI after each commit"
+        },
+        "ctrlztree.ai.autoRename.debounceMs": {
+          "type": "integer",
+          "default": 2000,
+          "minimum": 500,
+          "maximum": 30000,
+          "description": "Debounce delay in milliseconds before triggering auto-rename"
+        },
         "ctrlztree.persistence.mode": {
           "type": "string",
           "default": "off",

@@ -17,5 +17,11 @@ export const CONFIG_DEFAULTS = {
 		defaultMaxOutputTokens: 512,
 		defaultTemperature: 0.2,
 		defaultTopP: 1,
+		autoRename: {
+			defaultEnabled: false,
+			defaultDebounceMs: 2000,
+			defaultMinDiffBytes: 20,
+			defaultMaxDiffBytes: 8000,
+		},
 	}
 };
