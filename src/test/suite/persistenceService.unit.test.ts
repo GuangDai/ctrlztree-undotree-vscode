@@ -102,10 +102,12 @@ suite('PersistenceService', () => {
 			}
 		});
 
-		test('malformed JSON is rejected', () => {
-			assert.throws(() => {
-				JSON.parse('{bad json}');
-			});
+		test('fingerprint is deterministic across calls', () => {
+			const uri = 'file:///test/consistent.ts';
+			const fp1 = PersistenceService.computeFingerprint(uri);
+			const fp2 = PersistenceService.computeFingerprint(uri);
+			assert.strictEqual(fp1, fp2, 'Fingerprint should be deterministic');
+			assert.ok(fp1.length > 0, 'Fingerprint should not be empty');
 		});
 
 		test('event with extra fields still parses', () => {
