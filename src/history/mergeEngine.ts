@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 import { NodeId, EventSeq } from './ids';
 import { Projection } from './projection';
 import { MergeEvent } from './events';
+import { ILogger } from '../utils/logger';
 
 export interface MergePlan {
 	sourceIds: NodeId[];
@@ -20,8 +21,10 @@ export interface MergeResult {
 
 export function generateMergePlan(
 	projection: Projection,
-	sourceIds: NodeId[]
+	sourceIds: NodeId[],
+	logger?: ILogger,
 ): MergePlan {
+	logger?.debug(`mergeEngine: generating plan for ${sourceIds.length} sources`)
 	const warnings: string[] = [];
 	const { byId, parentOf, childrenOf, headId, deletedNodes, archivedNodes, rootId } = projection;
 
@@ -55,6 +58,9 @@ export function generateMergePlan(
 		const parent = parentOf.get(id);
 		if (parent === undefined || parent === null) {
 			return { sourceIds, targetParentId: 0, estimatedBytesFreed: 0, warnings: [`Node ${id} has no parent`], valid: false };
+		}
+		if (!byId.has(parent)) {
+			return { sourceIds, targetParentId: 0, estimatedBytesFreed: 0, warnings: [`Node ${id} parent ${parent} does not exist in byId`], valid: false };
 		}
 		parents.add(parent);
 	}
