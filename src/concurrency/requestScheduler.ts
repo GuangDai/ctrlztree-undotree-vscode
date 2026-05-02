@@ -1,15 +1,26 @@
+import { ILogger } from '../utils/logger'
+
 export interface SchedulerConfig {
 	maxConcurrentRequests: number;
 	maxRequestsPerHour: number;
 	timeoutMs: number;
 	maxRetries: number;
+	taskTimeouts?: Record<string, number>;
 }
 
 export const DEFAULT_SCHEDULER_CONFIG: SchedulerConfig = {
 	maxConcurrentRequests: 1,
 	maxRequestsPerHour: 30,
-	timeoutMs: 15000,
+	timeoutMs: 30000,
 	maxRetries: 2,
+	taskTimeouts: {
+		'ai-rename_node': 15000,
+		'ai-summarize_node': 30000,
+		'ai-summarize_branch': 60000,
+		'ai-propose_merge': 60000,
+		'ai-propose_prune': 60000,
+		'ai-propose_delete': 60000,
+	},
 };
 
 export interface ScheduledRequest<T> {
@@ -42,7 +53,10 @@ export class RequestScheduler {
 	private totalFailed = 0;
 	private totalRetried = 0;
 
-	constructor(private config: SchedulerConfig = DEFAULT_SCHEDULER_CONFIG) {}
+	constructor(
+		private config: SchedulerConfig = DEFAULT_SCHEDULER_CONFIG,
+		private logger?: ILogger,
+	) {}
 
 	async schedule<T>(req: ScheduledRequest<T>): Promise<T> {
 		if (this.concurrent >= this.config.maxConcurrentRequests || this.queue.length > 0) {
@@ -64,6 +78,7 @@ export class RequestScheduler {
 			for (const ctrl of controllers) {
 				try { ctrl.abort(reason); } catch { /* ignore already-aborted */ }
 			}
+			this.logger?.info(`scheduler: cancelled requests for docId=${docId} reason=${reason} controllers=${controllers.size}`)
 			this.controllers.delete(docId);
 		}
 
@@ -97,11 +112,14 @@ export class RequestScheduler {
 		const controller = new AbortController();
 		this.addController(req.docId, controller);
 
+		const effectiveTimeout = this.config.taskTimeouts?.[req.label] ?? this.config.timeoutMs
+		this.logger?.debug(`scheduler: executing request label=${req.label} docId=${req.docId} retry=${retryCount} timeout=${effectiveTimeout}`)
+
 		let timedOut = false;
 		const timeoutId = setTimeout(() => {
 			timedOut = true;
 			try { controller.abort('Request timeout'); } catch { /* ignore */ }
-		}, this.config.timeoutMs);
+		}, effectiveTimeout);
 
 		try {
 			await this.waitForRateLimit(controller.signal);
@@ -126,13 +144,14 @@ export class RequestScheduler {
 			clearTimeout(timeoutId);
 
 			if (timedOut) {
-				this.totalFailed++;
-				if (retryCount < this.config.maxRetries) {
-					this.totalRetried++;
-					return this.retryRequest(req, retryCount);
+					this.logger?.warn(`scheduler: request timed out label=${req.label} docId=${req.docId} timeout=${effectiveTimeout} attempt=${retryCount + 1}`)
+					this.totalFailed++;
+					if (retryCount < this.config.maxRetries) {
+						this.totalRetried++;
+						return this.retryRequest(req, retryCount);
+					}
+					throw new Error(`Request timed out after ${retryCount + 1} attempt(s)`);
 				}
-				throw new Error(`Request timed out after ${retryCount + 1} attempt(s)`);
-			}
 
 			if (controller.signal.aborted) {
 				this.totalFailed++;
@@ -158,6 +177,7 @@ export class RequestScheduler {
 	private async retryRequest<T>(req: ScheduledRequest<T>, retryCount: number): Promise<T> {
 		const baseMs = this.config.timeoutMs > 1000 ? 1000 : Math.max(10, this.config.timeoutMs / 2);
 		const delay = Math.min(baseMs * Math.pow(2, retryCount), 3000);
+		this.logger?.debug(`scheduler: retrying request label=${req.label} docId=${req.docId} delay=${delay.toFixed(0)}ms attempt=${retryCount + 1}`)
 		// retry sleep supports cancellation via abort signal
 		const controller = new AbortController();
 		// Link to doc's controller set for cancellation during sleep
