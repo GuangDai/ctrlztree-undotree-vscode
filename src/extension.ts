@@ -19,6 +19,7 @@ import { DIFF_SCHEME, ACTION_TIMEOUT, PAUSE_THRESHOLD } from './constants';
 import { registerDocumentChangeTracking } from './services/changeTracker';
 import { createDiffContentRegistry } from './ui/diffContentRegistry';
 import { clampConfig } from './config/configService';
+import { CONFIG_DEFAULTS } from './config/defaults';
 import { ApplyEditTokenSet } from './concurrency/applyEditTokens';
 import { HistoryTreeProvider } from './ui/historyTreeProvider';
 import { createVSCodeSecretStore } from './security/secretStore';
@@ -30,7 +31,7 @@ import { customHttpJsonHooks } from './ai/providers/customHttpJsonProvider';
 import { DocumentTaskQueue } from './concurrency/documentTaskQueue';
 import { BaseAiProvider } from './ai/providers/base';
 import { AiService } from './ai/aiService';
-import { RequestScheduler } from './concurrency/requestScheduler';
+import { RequestScheduler, DEFAULT_SCHEDULER_CONFIG } from './concurrency/requestScheduler';
 import { Logger, LogLevel } from './utils/logger';
 import { isTrackableDocument } from './utils/extensionUtils';
 import { setupPersistence, createPersistTimer, createPersistenceModeChangeHandler } from './services/persistenceLifecycle';
@@ -195,7 +196,14 @@ export function activate(context: vscode.ExtensionContext) {
     aiRegistry.register('anthropic-messages', new BaseAiProvider('anthropic-messages', createDefaultCapabilities('anthropic-messages'), baseUrl, anthropicMessagesHooks));
     aiRegistry.register('openai-responses', new BaseAiProvider('openai-responses', createDefaultCapabilities('openai-responses'), baseUrl, openaiResponsesHooks));
     aiRegistry.register('custom-http-json', new BaseAiProvider('custom-http-json', createDefaultCapabilities('custom-http-json'), baseUrl, customHttpJsonHooks));
-    const aiScheduler = new RequestScheduler();
+    const vsConfigForAi = vscode.workspace.getConfiguration('ctrlztree')
+    const timeoutMs = vsConfigForAi.get<number>('ai.timeoutMs', CONFIG_DEFAULTS.ai.defaultTimeoutMs)
+    const maxRetries = vsConfigForAi.get<number>('ai.maxRetries', CONFIG_DEFAULTS.ai.defaultMaxRetries)
+    const aiScheduler = new RequestScheduler({
+        ...DEFAULT_SCHEDULER_CONFIG,
+        timeoutMs,
+        maxRetries,
+    }, log)
     const aiService = new AiService({ registry: aiRegistry, scheduler: aiScheduler, secretStore, logger: log });
 
     // ---- 12. Command registrations ----
