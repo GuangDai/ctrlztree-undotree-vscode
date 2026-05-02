@@ -381,6 +381,11 @@ export function activate(context: vscode.ExtensionContext) {
         });
     }, 5000);
     extensionState.persistTimer = persistTimer;
+    // Ensure timer is cleaned up even on abnormal deactivation
+    context.subscriptions.push({ dispose: () => {
+        clearInterval(persistTimer);
+        extensionState.persistTimer = null;
+    }});
 
     context.subscriptions.push(themeChangeSubscription, activeEditorChangeSubscription, documentCloseSubscription, documentOpenSubscription);
 
