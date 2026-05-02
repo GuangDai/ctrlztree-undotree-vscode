@@ -21,8 +21,12 @@ export function buildCustomHttpJsonRequest(
 
 	if (req.responseSchema) {
 		body.response_format = {
-			type: 'json_object',
-			schema: req.responseSchema
+			type: 'json_schema',
+			json_schema: {
+				name: 'response',
+				schema: req.responseSchema,
+				strict: true
+			}
 		};
 	}
 
