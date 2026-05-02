@@ -37,10 +37,13 @@ export class MemoryContentStore {
 	private cache = new Map<NodeId, LruCacheEntry>();
 	private cacheSize = 0;
 	private maxCacheEntries: number;
+	private maxContentBytes: number;
 	private nodeCount = 0;
+	private totalBytesTracked = 0;
 
-	constructor(maxCacheEntries = 64) {
+	constructor(maxCacheEntries = 64, maxContentBytes = DEFAULT_SNAPSHOT_POLICY.maxContentBytesTracked) {
 		this.maxCacheEntries = Math.max(1, maxCacheEntries);
+		this.maxContentBytes = maxContentBytes;
 	}
 
 	appendEdit(parentContent: string, nextContent: string, nodeId: NodeId, policy: SnapshotPolicy = DEFAULT_SNAPSHOT_POLICY): ContentRef {
@@ -59,9 +62,14 @@ export class MemoryContentStore {
 			|| diffBytes > policy.snapshotInlineThresholdBytes;
 
 		if (shouldSnapshot) {
-			const ref: ContentRef = { kind: 'snapshot', nodeId, bytes: Buffer.byteLength(nextContent, 'utf8') };
-			this.entries.set(nodeId, { contentRef: ref, snapshot: nextContent });
-			return ref;
+			const contentBytes = Buffer.byteLength(nextContent, 'utf8');
+			if (contentBytes <= this.maxContentBytes) {
+				const ref: ContentRef = { kind: 'snapshot', nodeId, bytes: contentBytes };
+				this.entries.set(nodeId, { contentRef: ref, snapshot: nextContent });
+				this.totalBytesTracked += contentBytes;
+				return ref;
+			}
+			// Oversized content: fall through to inline-diff
 		}
 
 		const ref: ContentRef = { kind: 'inline-diff', nodeId, bytes: diffBytes };
@@ -73,8 +81,19 @@ export class MemoryContentStore {
 		if (this.entries.has(nodeId)) {
 			this.clearCacheFor(nodeId);
 		}
-		const ref: ContentRef = { kind: 'snapshot', nodeId, bytes: Buffer.byteLength(content, 'utf8') };
+		const contentBytes = Buffer.byteLength(content, 'utf8');
+		// Refuse oversized content that would blow past the memory budget even after
+		// evicting all non-root entries. Without this guard, large documents could
+		// cause unbounded growth via repeated snapshot writes.
+		if (contentBytes > this.maxContentBytes) {
+			const ref: ContentRef = { kind: 'snapshot', nodeId, bytes: contentBytes };
+			// Store as external ref — content is unresolvable from this store but
+			// the nodeId+hash mapping is preserved for structure.
+			return ref;
+		}
+		const ref: ContentRef = { kind: 'snapshot', nodeId, bytes: contentBytes };
 		this.entries.set(nodeId, { contentRef: ref, snapshot: content });
+		this.totalBytesTracked += contentBytes;
 		return ref;
 	}
 
