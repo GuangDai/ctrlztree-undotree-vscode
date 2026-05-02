@@ -23,7 +23,7 @@ export function generateMergePlan(
 	sourceIds: NodeId[]
 ): MergePlan {
 	const warnings: string[] = [];
-	const { byId, parentOf, childrenOf, headId, deletedNodes, rootId } = projection;
+	const { byId, parentOf, childrenOf, headId, deletedNodes, archivedNodes, rootId } = projection;
 
 	if (sourceIds.length === 0) {
 		return { sourceIds, targetParentId: 0, estimatedBytesFreed: 0, warnings: ['No source IDs provided'], valid: false };
@@ -88,16 +88,26 @@ export function generateMergePlan(
 		warnings.push('Merge plan involves non-linear chain - requires confirmation');
 	}
 
-	// Check that last node's children are not affected
-	const lastNodeChildren = childrenOf.get(sourceIds[sourceIds.length - 1]) ?? [];
-	for (const childId of lastNodeChildren) {
-		if (!sourceIds.includes(childId) && !deletedNodes.has(childId)) {
-			warnings.push(`Child ${childId} of merged nodes will need re-parenting`);
+	// Check ALL source nodes for children that would be orphaned by the merge.
+	// Previously only the last node's children were checked, missing orphans from
+	// intermediate nodes in the merge chain.
+	const sourceSet = new Set(sourceIds);
+	for (const srcId of sourceIds) {
+		const srcChildren = childrenOf.get(srcId) ?? [];
+		for (const childId of srcChildren) {
+			if (!sourceSet.has(childId) && !deletedNodes.has(childId) && !archivedNodes.has(childId)) {
+				warnings.push(`Node ${childId} (child of merged node ${srcId}) will need re-parenting`);
+			}
 		}
 	}
 
 	// Target parent is the first node's parent
-	const targetParentId = parentOf.get(sourceIds[0])!;
+	const targetParentIdRaw = parentOf.get(sourceIds[0]);
+	if (targetParentIdRaw === undefined || targetParentIdRaw === null) {
+		return { sourceIds, targetParentId: 0, estimatedBytesFreed: 0,
+			warnings: ['First source node has no parent — cannot determine merge target'], valid: false };
+	}
+	const targetParentId: NodeId = targetParentIdRaw;
 
 	// Estimated bytes freed (approximate: each node ~1KB)
 	const estimatedBytesFreed = sourceIds.length * 1024;
