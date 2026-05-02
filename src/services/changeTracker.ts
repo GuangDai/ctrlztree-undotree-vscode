@@ -114,7 +114,8 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         log.debug(`CtrlZTree: change scheduled for ${docUriString} (group: ${shouldGroup}, separatorTrigger: ${separatorTrigger ?? 'none'}, delay: ${delay}ms, type: ${changeType}, cursor: ${currentPosition?.line}:${currentPosition?.character})`);
     });
 
-    context.subscriptions.push(subscription);
+    // Note: caller is responsible for disposing the returned subscription.
+    // Do NOT push to context.subscriptions here — the caller manages lifecycle.
     log.info('CtrlZTree: onDidChangeTextDocument subscribed.');
 
     return subscription;
