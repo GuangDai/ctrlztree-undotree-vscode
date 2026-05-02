@@ -40,9 +40,8 @@ suite('Extension Activation Test Suite', () => {
 		assert.ok(commands.includes('ctrlztree.ai.testConnection'), 'Test connection command should be registered');
 	});
 
-	test('CtrlZTree output channel is available', () => {
-		// The extension creates an "CtrlZTree" output channel on activation
-		// We verify the channel exists indirectly through command registration
-		assert.ok(true, 'Output channel created during activation');
+	test('CtrlZTree diffWithCurrent command is registered', async () => {
+		const commands = await vscode.commands.getCommands();
+		assert.ok(commands.includes('ctrlztree.history.diffWithCurrent'), 'Diff with current command should be registered');
 	});
 });
