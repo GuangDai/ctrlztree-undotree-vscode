@@ -62,20 +62,17 @@ suite('ProviderRegistry', () => {
 	test('createDefaultCapabilities returns correct capabilities', () => {
 		const caps = createDefaultCapabilities('openai-responses');
 		assert.strictEqual(caps.supportsSystemMessage, true);
-		assert.strictEqual(caps.supportsJsonSchema, true);
-		assert.strictEqual(caps.supportsTools, true);
+		assert.ok(caps.maxContextTokens > 0);
 	});
 
 	test('anthropic capabilities correctly set', () => {
 		const caps = createDefaultCapabilities('anthropic-messages');
 		assert.strictEqual(caps.supportsSystemMessage, true);
-		assert.strictEqual(caps.supportsJsonSchema, false);
-		assert.strictEqual(caps.supportsParallelToolCalls, false);
 	});
 
 	test('custom-http-json has minimal capabilities', () => {
 		const caps = createDefaultCapabilities('custom-http-json');
-		assert.strictEqual(caps.supportsTools, false);
+		assert.strictEqual(caps.supportsSystemMessage, false);
 	});
 
 	test('all four provider names are supported', () => {

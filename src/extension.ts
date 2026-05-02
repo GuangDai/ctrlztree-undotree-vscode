@@ -23,10 +23,10 @@ import { ApplyEditTokenSet } from './concurrency/applyEditTokens';
 import { HistoryTreeProvider } from './ui/historyTreeProvider';
 import { createVSCodeSecretStore } from './security/secretStore';
 import { ProviderRegistry, createDefaultCapabilities } from './ai/providers/registry';
-import { buildOpenAIChatCompatibleRequest, parseOpenAIChatCompatibleResponse } from './ai/providers/openaiChatCompatibleProvider';
-import { buildAnthropicMessagesRequest, parseAnthropicMessagesResponse } from './ai/providers/anthropicMessagesProvider';
-import { buildOpenAIResponsesRequest, parseOpenAIResponsesResponse } from './ai/providers/openaiResponsesProvider';
-import { buildCustomHttpJsonRequest, parseCustomHttpJsonResponse } from './ai/providers/customHttpJsonProvider';
+import { openaiChatCompatibleHooks } from './ai/providers/openaiChatCompatibleProvider';
+import { anthropicMessagesHooks } from './ai/providers/anthropicMessagesProvider';
+import { openaiResponsesHooks } from './ai/providers/openaiResponsesProvider';
+import { customHttpJsonHooks } from './ai/providers/customHttpJsonProvider';
 import { DocumentTaskQueue } from './concurrency/documentTaskQueue';
 import { BaseAiProvider } from './ai/providers/base';
 import { AiService } from './ai/aiService';
@@ -191,10 +191,10 @@ export function activate(context: vscode.ExtensionContext) {
     // ---- 11. AI pipeline ----
     const aiRegistry = new ProviderRegistry();
     const baseUrl = vscode.workspace.getConfiguration('ctrlztree').get<string>('ai.baseUrl', '');
-    aiRegistry.register('openai-chat-compatible', new BaseAiProvider('openai-chat-compatible', createDefaultCapabilities('openai-chat-compatible'), baseUrl, buildOpenAIChatCompatibleRequest, parseOpenAIChatCompatibleResponse));
-    aiRegistry.register('anthropic-messages', new BaseAiProvider('anthropic-messages', createDefaultCapabilities('anthropic-messages'), baseUrl, buildAnthropicMessagesRequest, parseAnthropicMessagesResponse));
-    aiRegistry.register('openai-responses', new BaseAiProvider('openai-responses', createDefaultCapabilities('openai-responses'), baseUrl, buildOpenAIResponsesRequest, parseOpenAIResponsesResponse));
-    aiRegistry.register('custom-http-json', new BaseAiProvider('custom-http-json', createDefaultCapabilities('custom-http-json'), baseUrl, buildCustomHttpJsonRequest, parseCustomHttpJsonResponse));
+    aiRegistry.register('openai-chat-compatible', new BaseAiProvider('openai-chat-compatible', createDefaultCapabilities('openai-chat-compatible'), baseUrl, openaiChatCompatibleHooks));
+    aiRegistry.register('anthropic-messages', new BaseAiProvider('anthropic-messages', createDefaultCapabilities('anthropic-messages'), baseUrl, anthropicMessagesHooks));
+    aiRegistry.register('openai-responses', new BaseAiProvider('openai-responses', createDefaultCapabilities('openai-responses'), baseUrl, openaiResponsesHooks));
+    aiRegistry.register('custom-http-json', new BaseAiProvider('custom-http-json', createDefaultCapabilities('custom-http-json'), baseUrl, customHttpJsonHooks));
     const aiScheduler = new RequestScheduler();
     const aiService = new AiService({ registry: aiRegistry, scheduler: aiScheduler, secretStore, logger: log });
 

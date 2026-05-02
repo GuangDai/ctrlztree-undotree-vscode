@@ -56,19 +56,13 @@ export class AiService {
 			this.log.error(`CtrlZTree AI: No API key found in SecretStorage for ${config.provider}`);
 			return { ok: false, error: `No API key configured for ${config.provider}` };
 		}
-		this.log.debug(`CtrlZTree AI: API key found (length=${apiKey.length})`);
+		this.log.debug('CtrlZTree AI: API key found in SecretStorage');
 
 		const request: UnifiedAiRequest = {
 			task: 'summarize_node',
 			model: config.model,
 			system: '',
-			messages: [{ role: 'user', content: 'Hi' }],
-			responseSchema: { type: 'object', properties: {} },
-			maxOutputTokens: 16,
-			temperature: 0,
-			topP: 1,
-			toolMode: 'none',
-			parallelToolCalls: false,
+			messages: [{ role: 'user', content: 'Respond with the single word "ok"' }],
 			metadata: {
 				promptVersion: 'test',
 				docFingerprint: 'test',
@@ -87,12 +81,7 @@ export class AiService {
 				},
 			});
 
-			this.log.info(`CtrlZTree AI: Response received: ${JSON.stringify({
-				task: (result as any).task,
-				baseSeq: (result as any).baseSeq,
-				nodeUpdates: (result as any).nodeUpdates?.length,
-				warnings: (result as any).warnings,
-			})}`);
+			this.log.debug(`CtrlZTree AI: Response received for task=${(result as any).task}`);
 
 			if (!('ok' in result) || result.ok !== false) {
 				const summary = JSON.stringify(result);

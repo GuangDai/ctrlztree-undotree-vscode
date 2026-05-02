@@ -32,7 +32,6 @@ suite('PromptBuilder', () => {
 		assert.ok(result.system.length > 0);
 		assert.strictEqual(result.userMessages.length, 1);
 		assert.strictEqual(result.userMessages[0].role, 'user');
-		assert.strictEqual(result.responseSchema.type, 'object');
 	});
 
 	test('rename_node prompt mentions diff summary and nearby names', () => {
@@ -99,8 +98,6 @@ suite('PromptBuilder', () => {
 
 		assert.strictEqual(req.task, 'rename_node');
 		assert.strictEqual(req.model, 'gpt-4o-mini');
-		assert.strictEqual(req.maxOutputTokens, 512);
-		assert.strictEqual(req.temperature, 0.2);
 		assert.strictEqual(req.metadata.baseSeq, 10);
 		assert.ok(req.system.length > 0);
 	});
