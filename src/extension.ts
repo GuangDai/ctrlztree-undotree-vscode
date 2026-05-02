@@ -582,6 +582,18 @@ export function activate(context: vscode.ExtensionContext) {
         const savedHead = tree.getHead();
         const navResult = await controller.undo();
         if (!navResult.hash || !navResult.content) {
+            // Check if failure was from desync vs legitimate end-of-history
+            if (controller) {
+                const proj = controller.getProjection();
+                const recentErrors = proj.diagnostics.filter(
+                    d => d.severity === 'error' && (d.eventSeq ?? 0) >= proj.lastSeq - 5
+                );
+                if (recentErrors.length > 0) {
+                    log.error(`CtrlZTree: undo failed due to internal inconsistency: ${recentErrors.map(d => d.message).join('; ')}`);
+                    vscode.window.showWarningMessage('CtrlZTree: Undo failed — internal state inconsistency detected. See CtrlZTree output for details.');
+                    return;
+                }
+            }
             log.debug('CtrlZTree: No more undo history.');
             vscode.window.showInformationMessage('CtrlZTree: No more undo history.');
             return;
@@ -627,6 +639,17 @@ export function activate(context: vscode.ExtensionContext) {
             const savedHead = tree.getHead();
             const navResult = await controller.redo(children[0]);
             if (!navResult.hash || !navResult.content) {
+                if (controller) {
+                    const proj = controller.getProjection();
+                    const recentErrors = proj.diagnostics.filter(
+                        d => d.severity === 'error' && (d.eventSeq ?? 0) >= proj.lastSeq - 5
+                    );
+                    if (recentErrors.length > 0) {
+                        log.error(`CtrlZTree: redo failed due to internal inconsistency: ${recentErrors.map(d => d.message).join('; ')}`);
+                        vscode.window.showWarningMessage('CtrlZTree: Redo failed — internal state inconsistency detected. See output for details.');
+                        return;
+                    }
+                }
                 log.error('CtrlZTree: Redo returned no content.');
                 return;
             }
