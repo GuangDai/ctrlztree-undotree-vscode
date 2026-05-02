@@ -40,8 +40,8 @@ export class CtrlZTree {
         }
     }
 
-    private calculateHash(content: string, salt: string = ''): string {
-        return crypto.createHash('sha256').update(content + salt).digest('hex');
+    private calculateHash(content: string): string {
+        return crypto.createHash('sha256').update(content).digest('hex');
     }
 
     private reconstructContent(hash: string): string {
