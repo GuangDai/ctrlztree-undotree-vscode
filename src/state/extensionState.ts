@@ -13,14 +13,14 @@ export interface ExtensionState {
     lastChangeType: Map<string, ChangeType>;
     historyTrees: Map<string, CtrlZTree>;
     historyControllers: Map<string, HistoryController>;
-    activeVisualizationPanels: Map<string, vscode.WebviewPanel>;
-    panelToFullHashMap: Map<vscode.WebviewPanel, Map<string, string>>;
     processingDocuments: Set<string>;
     rescheduleRetryCounts: Map<string, number>;
     lastValidEditorUri: string | null;
     lastOpenedDiffEditor: vscode.TextEditor | null;
     editTokens: ApplyEditTokenSet | null;
     persistTimer: NodeJS.Timeout | null;
+    persistenceActive: boolean;
+    persistenceMode: 'off' | 'ask' | 'on';
 }
 
 export function createExtensionState(): ExtensionState {
@@ -32,13 +32,13 @@ export function createExtensionState(): ExtensionState {
         lastChangeType: new Map<string, ChangeType>(),
         historyTrees: new Map<string, CtrlZTree>(),
         historyControllers: new Map<string, HistoryController>(),
-        activeVisualizationPanels: new Map<string, vscode.WebviewPanel>(),
-        panelToFullHashMap: new Map<vscode.WebviewPanel, Map<string, string>>(),
         processingDocuments: new Set<string>(),
         rescheduleRetryCounts: new Map<string, number>(),
         lastValidEditorUri: null,
         lastOpenedDiffEditor: null,
         editTokens: null,
         persistTimer: null,
+        persistenceActive: false,
+        persistenceMode: 'off',
     };
 }

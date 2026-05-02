@@ -7,7 +7,6 @@ import { MemoryContentStore, SnapshotPolicy } from './contentStore';
 import { PersistenceService } from '../security/persistenceService';
 import { Logger } from '../utils/logger';
 import * as crypto from 'crypto';
-import * as vscode from 'vscode';
 
 function sha256(content: string): string {
 	return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
@@ -48,14 +47,6 @@ export class HistoryController {
 	private hashToNodeId = new Map<string, NodeId>();
 	private nodeIdToHash = new Map<NodeId, string>();
 	private needsPersist = false;
-
-	private safeGetTreeHead(): string | null {
-		const head = this.tree.getHead();
-		if (head === null) {
-			this.log?.error('CtrlZTree: getHead() returned null — projection/tree may be desynchronized');
-		}
-		return head;
-	}
 
 	constructor(deps: HistoryControllerDeps) {
 		this.docId = deps.docId;
@@ -123,14 +114,38 @@ export class HistoryController {
 		this.needsPersist = true; this.log?.debug(`CtrlZTree: init events=${this.events.length}`);
 	}
 
-	async commit(content: string, cursor?: vscode.Position): Promise<CommitResult> {
+	async commit(content: string, cursor?: { line: number; character: number }): Promise<CommitResult> {
 		return this.queue.enqueue(this.docId, 'commit', async (token) => {
 			if (token.cancelled) { throw new Error(`Commit cancelled: ${token.cancelReason}`); }
 			const oldContent = this.tree.getContent();
 			const cursorPos: Cursor | undefined = cursor ? { line: cursor.line, character: cursor.character } : undefined;
-			const newHash = this.tree.set(content, cursor);
+			const savedHead = this.tree.getHead();
+			const savedNextNodeId = this.nextNodeId;
+			const savedSeq = this.nextSeq;
+			const newHash = this.tree.set(content, cursorPos as any);
 
-			if (newHash === this.tree.getHead() && oldContent === content) {
+			if (newHash === savedHead && oldContent === content) {
+				// Content unchanged — but cursor may have moved. Record headMove if so.
+				if (cursorPos) {
+					const headNodeId = this.hashToNodeId.get(newHash);
+					if (headNodeId !== undefined) {
+						const headMoveEvent: HeadMoveEvent = {
+							kind: 'headMove',
+							schemaVersion: 1,
+							seq: this.nextSeq++,
+							at: Date.now(),
+							txId: this.genTxId(),
+							source: 'user',
+							from: headNodeId,
+							to: headNodeId,
+							reason: 'checkout',
+							cursor: cursorPos,
+						};
+						this.events.push(headMoveEvent);
+						this.projection = project(this.docId, this.events);
+						this.needsPersist = true;
+					}
+				}
 				return { hash: newHash };
 			}
 
@@ -139,17 +154,13 @@ export class HistoryController {
 			}
 			const nodeId = this.hashToNodeId.get(newHash)!;
 			const parentHash = this.tree.getAllNodes().get(newHash)?.parent;
-			let parentId: NodeId = this.projection.headId;
+			let parentId: NodeId = 0;
 			if (parentHash) {
 				if (!this.hashToNodeId.has(parentHash)) {
 					this.mapHash(parentHash, this.nextNodeId++);
 				}
 				parentId = this.hashToNodeId.get(parentHash)!;
 			}
-				if (parentId === 0 && this.projection.rootId !== 0) {
-					this.log?.warn(`CtrlZTree: commit parentId resolved to unexpected root; using head ${this.projection.headId}`);
-					parentId = this.projection.headId;
-				}
 
 			const newContent = this.tree.getContent(newHash);
 			const diffStr = this.tree.getAllNodes().get(newHash)?.diff ?? '';
@@ -181,9 +192,29 @@ export class HistoryController {
 			try {
 				this.projection = project(this.docId, this.events);
 			} catch (err: any) {
-				this.log?.error(`CtrlZTree: project() failed in commit: ${err?.message}`);
-				// Projection is stale but event was already pushed.
-				// Next operation will re-project from all events.
+				// Rollback: remove the bad event, restore tree + counters, re-project
+				this.log?.error(`CtrlZTree: project() failed in commit, rolling back: ${err?.message}`);
+				this.events.pop();
+				// Revert tree head if changed by this commit
+				if (savedHead && savedHead !== this.tree.getHead()) {
+					this.tree.setHead(savedHead);
+				}
+				// Revert ID counters
+				this.nextNodeId = savedNextNodeId;
+				this.nextSeq = savedSeq;
+				// Revert hash mappings added by this commit
+				if (this.hashToNodeId.has(newHash)) {
+					const nid = this.hashToNodeId.get(newHash)!;
+					if (nid >= savedNextNodeId) {
+						this.hashToNodeId.delete(newHash);
+						this.nodeIdToHash.delete(nid);
+					}
+				}
+				// Clean up orphaned content store entry
+				if (this.contentStore && nodeId >= savedNextNodeId) {
+					this.contentStore.clearCacheFor(nodeId);
+				}
+				this.projection = project(this.docId, this.events);
 			}
 			this.needsPersist = true; this.log?.debug(`CtrlZTree: commit events=${this.events.length}`);
 			this.log?.debug(`CtrlZTree: commit nodeId=${nodeId} seq=${editEvent.seq} bytes=${newContent.length} events=${this.events.length}`);
@@ -205,12 +236,11 @@ export class HistoryController {
 			}
 
 			// Record headMove in events/projection without touching legacy tree
-			const undoHead = this.safeGetTreeHead();
-			if (!undoHead) { return { hash: null, content: null }; }
-			if (!this.hashToNodeId.has(undoHead)) {
-				this.mapHash(undoHead, this.nextNodeId++);
+			if (!this.hashToNodeId.has(this.tree.getHead()!)) {
+				const oldHash = this.tree.getHead()!;
+				this.mapHash(oldHash, this.nextNodeId++);
 			}
-			const oldNodeId = this.hashToNodeId.get(undoHead)!;
+			const oldNodeId = this.hashToNodeId.get(this.tree.getHead()!)!;
 			const newNodeId = parentId; // parentId IS the nodeId from projection
 
 			const headMoveEvent: HeadMoveEvent = {
@@ -228,7 +258,21 @@ export class HistoryController {
 			this.projection = project(this.docId, this.events);
 			// Sync legacy tree head (single source of truth for content resolution)
 			const parentHash = this.tree.peekUndo();
-			if (parentHash) { this.tree.z(); }
+			if (parentHash) {
+				this.tree.z();
+			} else {
+				// peekUndo() returned null -- either we're at initialSnapshot boundary
+				// or at root. In either case, sync legacy tree head to match projection.
+				// newNodeId is a valid non-null projection nodeId (guarded above).
+				const syncHash = this.nodeIdToHash.get(newNodeId);
+				if (syncHash) {
+					this.tree.setHead(syncHash);
+				} else {
+					// Cannot sync legacy tree — projection and legacy tree are desynced.
+					this.log?.error('CtrlZTree: undo cannot sync legacy tree — projection/legacy desync');
+					return { hash: null, content: null };
+				}
+			}
 			const content = this.tree.getContent();
 			this.needsPersist = true;
 			return { hash: parentHash, content };
@@ -249,19 +293,33 @@ export class HistoryController {
 
 			let targetId: number;
 			if (childHash) {
-				// Resolve child by hash to nodeId
-				const targetNodeId = this.hashToNodeId.get(childHash);
-				if (targetNodeId === undefined || !visibleChildren.includes(targetNodeId)) {
-					return { hash: null, content: null };
+				// Resolve child by hash to nodeId; lazy-map if hash is unknown
+				let targetNodeId = this.hashToNodeId.get(childHash);
+				if (targetNodeId === undefined) {
+					// Hash exists in legacy tree but not yet mapped — map it now
+					if (this.tree.getAllNodes().has(childHash)) {
+						this.mapHash(childHash, this.nextNodeId++);
+						targetNodeId = this.hashToNodeId.get(childHash)!;
+					}
 				}
-				targetId = targetNodeId;
+				if (targetNodeId === undefined || !visibleChildren.includes(targetNodeId)) {
+					// Try fallback via projection's contentHashIndex
+					const contentHash = childHash.split('#')[0]; // strip disambiguator suffix
+					const candidateIds = proj.contentHashIndex.get(contentHash) ?? [];
+					const visibleCandidate = candidateIds.find(id => visibleChildren.includes(id));
+					if (visibleCandidate !== undefined) {
+						targetNodeId = visibleCandidate;
+					} else {
+						this.log?.warn(`CtrlZTree: redo child ${childHash.substring(0, 8)} not in visible children`);
+						return { hash: null, content: null };
+					}
+				}
+				targetId = targetNodeId!;
 			} else {
 				targetId = visibleChildren[0]; // First visible child
 			}
 
-			const redoHead = this.safeGetTreeHead();
-			if (!redoHead) { return { hash: null, content: null }; }
-			const oldNodeId = this.hashToNodeId.get(redoHead) ?? currentHead;
+			const oldNodeId = this.hashToNodeId.get(this.tree.getHead()!) ?? currentHead;
 
 			const headMoveEvent: HeadMoveEvent = {
 				kind: 'headMove',
@@ -276,10 +334,17 @@ export class HistoryController {
 			};
 			this.events.push(headMoveEvent);
 			this.projection = project(this.docId, this.events);
-			// Sync legacy tree head
-			if (childHash) { this.tree.setHead(childHash); } else { this.tree.y(); }
-			const newHash = this.safeGetTreeHead();
-			if (!newHash) { return { hash: null, content: null }; }
+			// Sync legacy tree head -- use the hash from nodeId mapping, not raw childHash
+			// (childHash may not match the targetId resolved via contentHashIndex fallback)
+			const syncHash = this.nodeIdToHash.get(targetId);
+			if (syncHash) {
+				this.tree.setHead(syncHash);
+			} else if (childHash) {
+				this.tree.setHead(childHash);
+			} else {
+				this.tree.y();
+			}
+			const newHash = this.tree.getHead()!;
 			this.needsPersist = true;
 			return { hash: newHash, content: this.tree.getContent() };
 		});
@@ -306,9 +371,12 @@ export class HistoryController {
 			if (!proj.byId.has(finalTargetId)) {
 				return { success: false, content: null };
 			}
+			// Reject navigation to root node (always empty content)
+			if (finalTargetId === proj.rootId) {
+				return { success: false, content: null };
+			}
 
-			const checkoutHead = this.safeGetTreeHead();
-			const oldNodeId = checkoutHead ? (this.hashToNodeId.get(checkoutHead) ?? proj.headId) : proj.headId;
+			const oldNodeId = this.hashToNodeId.get(this.tree.getHead()!) ?? proj.headId;
 
 			const headMoveEvent: HeadMoveEvent = {
 				kind: 'headMove',
@@ -324,7 +392,9 @@ export class HistoryController {
 			this.events.push(headMoveEvent);
 			this.projection = project(this.docId, this.events);
 			// Sync legacy tree head
-			this.tree.setHead(hash);
+			if (!this.tree.setHead(hash)) {
+				return { success: false, content: null };
+			}
 			this.needsPersist = true;
 			return { success: true, content: this.tree.getContent(hash) };
 		});
@@ -349,6 +419,14 @@ export class HistoryController {
 		return this.tree.getHead();
 	}
 
+	getNodeIdByHash(hash: string): number | undefined {
+		return this.hashToNodeId.get(hash);
+	}
+
+	getHashByNodeId(nodeId: number): string | undefined {
+		return this.nodeIdToHash.get(nodeId);
+	}
+
 	getContent(hash?: string): string {
 		return this.tree.getContent(hash);
 	}
@@ -361,12 +439,6 @@ export class HistoryController {
 		if (!plan.valid) {
 			return { ok: false, error: 'Merge plan is not valid' };
 		}
-		// Save mutable state for rollback if projection fails
-		const savedHead = this.tree.getHead();
-		const savedProjection = this.projection;
-		const savedNextNodeId = this.nextNodeId;
-		const savedNextSeq = this.nextSeq;
-		const savedNextTxId = this.nextTxId;
 		// Filter out already-archived or deleted source nodes to avoid duplicate archive references
 		const activeSources = plan.sourceIds.filter(id =>
 			!this.projection.archivedNodes.has(id) && !this.projection.deletedNodes.has(id)
@@ -391,26 +463,19 @@ export class HistoryController {
 			reason: 'User requested linear chain merge',
 		};
 		this.events.push(mergeEvent);
+		// Store merge result snapshot so resolve() works
+		if (this.contentStore) {
+			this.contentStore.putSnapshot(resultNodeId, resultContent);
+		}
 		// Also set content in legacy tree for consistency
-		const mergeHead = this.safeGetTreeHead();
-		const parentHash = mergeHead ? this.tree.getAllNodes().get(mergeHead)?.parent : undefined;
+		const parentHash = this.tree.getAllNodes().get(this.tree.getHead()!)?.parent;
 		if (parentHash) {
 			this.tree.setHead(parentHash);
 		}
-		this.tree.set(resultContent);
-		try {
-			this.projection = project(this.docId, this.events);
-		} catch (err: any) {
-			// Full rollback: restore all mutable state
-			this.events.pop();
-			if (savedHead) { this.tree.setHead(savedHead); }
-			this.nextNodeId = savedNextNodeId;
-			this.nextSeq = savedNextSeq;
-			this.nextTxId = savedNextTxId;
-			this.projection = savedProjection;
-			this.log?.error(`CtrlZTree: merge plan projection failed; full rollback applied: ${err?.message}`);
-			return { ok: false, error: `Merge failed: ${(err as Error).message}` };
-		}
+		const newHash = this.tree.set(resultContent);
+		// Map the merge result hash to its nodeId so checkout/navigate works
+		this.mapHash(newHash, resultNodeId);
+		this.projection = project(this.docId, this.events);
 		this.needsPersist = true;
 		this.log?.info(`CtrlZTree: Merged ${plan.sourceIds.length} nodes -> #${resultNodeId}`);
 		return { ok: true, nodeId: resultNodeId };
@@ -437,6 +502,65 @@ export class HistoryController {
 		return { ok: true };
 	}
 
+	/**
+	 * Apply AI-provided name/summary updates to nodes.
+	 * Pure core logic — no AI or VS Code deps.
+	 * Validates nodeIds against the projection, emits RenameEvent/SummarizeEvent.
+	 */
+	applyAiNodeUpdates(
+		updates: Array<{ nodeId: NodeId; name?: string; summary?: string }>,
+		aiProvenance?: { provider: string; model: string; confidence?: number }
+	): { applied: number; skipped: number } {
+		const proj = this.projection;
+		let applied = 0;
+		let skipped = 0;
+
+		for (const update of updates) {
+			if (!proj.byId.has(update.nodeId) || proj.deletedNodes.has(update.nodeId)) {
+				skipped++;
+				continue;
+			}
+			if (update.name !== undefined && update.name.trim().length > 0) {
+				const renameEvent: import('./events').RenameEvent = {
+					kind: 'rename',
+					schemaVersion: 1,
+					seq: this.nextSeq++,
+					at: Date.now(),
+					txId: this.genTxId(),
+					source: 'ai-plan',
+					nodeId: update.nodeId,
+					name: update.name.trim(),
+					ai: aiProvenance ? { provider: aiProvenance.provider, model: aiProvenance.model, confidence: aiProvenance.confidence } : undefined,
+				};
+				this.events.push(renameEvent);
+				applied++;
+			}
+			if (update.summary !== undefined && update.summary.trim().length > 0) {
+				const summarizeEvent: import('./events').SummarizeEvent = {
+					kind: 'summarize',
+					schemaVersion: 1,
+					seq: this.nextSeq++,
+					at: Date.now(),
+					txId: this.genTxId(),
+					source: 'ai-plan',
+					nodeId: update.nodeId,
+					summary: update.summary.trim(),
+					ai: aiProvenance ? { provider: aiProvenance.provider, model: aiProvenance.model, confidence: aiProvenance.confidence } : undefined,
+				};
+				this.events.push(summarizeEvent);
+				applied++;
+			}
+		}
+
+		if (applied > 0) {
+			this.projection = project(this.docId, this.events);
+			this.needsPersist = true;
+			this.log?.debug(`CtrlZTree: applyAiNodeUpdates applied=${applied} skipped=${skipped} events=${this.events.length}`);
+		}
+
+		return { applied, skipped };
+	}
+
 	getNeedsPersist(): boolean {
 		return this.needsPersist && this.persistenceService !== undefined;
 	}
@@ -453,6 +577,8 @@ export class HistoryController {
 		// Rebuild hash-to-nodeId mapping from persisted events
 		controller.hashToNodeId.clear();
 		controller.nodeIdToHash.clear();
+		// Re-map the internal root hash (always nodeId 0)
+		controller.mapHash(controller.tree.getInternalRootHash(), 0);
 		let maxNodeId = 0;
 		for (const event of events) {
 			const ids: number[] = [];
@@ -486,15 +612,69 @@ export class HistoryController {
 			}
 		}
 		controller.projection = project(controller.docId, controller.events);
-		// Seed legacy tree with content from ALL projection nodes (not just headPath)
-		// so branch nodes are available for checkout after restore.
-		for (const [nodeId] of controller.projection.byId) {
-			if (nodeId === controller.projection.rootId) { continue; }
-			const content = controller.contentStore?.resolve(nodeId, controller.projection);
-			if (content !== null && content !== undefined) {
-				controller.tree.set(content, undefined);
+			// Rebuild legacy tree from persisted content entries so that undo/redo
+			// and content resolution work correctly after restore.
+			// Walk the projection from root to head in topological order,
+			// resolve each node's content via ContentStore, and rebuild the tree.
+			if (controller.contentStore) {
+				const proj = controller.projection;
+				// Collect nodes in topological order (root to head via parent chain)
+				const headPath: number[] = [];
+				let c: number | null = proj.headId;
+				while (c !== null) {
+					headPath.push(c);
+					c = proj.parentOf.get(c) ?? null;
+				}
+				headPath.reverse(); // root-first
+				// Replay: for each node, resolve content and set it in the tree
+				// Skip node 0 (true empty root)
+				for (const nodeId of headPath) {
+					if (nodeId === proj.rootId) { continue; }
+					const nodeContent = controller.contentStore.resolve(nodeId, proj);
+					if (nodeContent !== null) {
+						const nodeView = proj.byId.get(nodeId);
+						controller.tree.set(nodeContent, undefined, nodeView?.createdAt);
+					}
+				}
 			}
-		}
+			// Rebuild hashToNodeId mapping.
+			// The legacy tree was rebuilt above, so tree.getAllNodes() now contains
+			// hashes for all persisted nodes. Map hashes to nodeIds via contentHash.
+			for (const [hash, node] of controller.tree.getAllNodes()) {
+				const internalRoot = controller.tree.getInternalRootHash();
+				if (hash === internalRoot) { continue; }
+				const content = controller.tree.getContent(hash);
+				const contentHash = sha256(content);
+				const candidateIds = controller.projection.contentHashIndex.get(contentHash) ?? [];
+				if (candidateIds.length === 0) { continue; }
+				// Prefer candidate matching the parent chain when possible
+				let matchedId: number | undefined;
+				if (node.parent) {
+					const parentNodeId = controller.hashToNodeId.get(node.parent);
+					if (parentNodeId !== undefined) {
+						for (const cid of candidateIds) {
+							if (controller.projection.parentOf.get(cid) === parentNodeId) {
+								matchedId = cid;
+								break;
+							}
+						}
+					}
+				}
+				// Prefer unmapped candidate
+				if (matchedId === undefined) {
+					for (const cid of candidateIds) {
+						if (!controller.nodeIdToHash.has(cid)) {
+							matchedId = cid;
+							break;
+						}
+					}
+				}
+				// Fallback: first candidate
+				if (matchedId === undefined) {
+					matchedId = candidateIds[0];
+				}
+				controller.mapHash(hash, matchedId);
+			}
 		controller.needsPersist = false; // Just loaded from disk
 		controller.log?.info(`CtrlZTree: Restored ${events.length} events${contentEntries ? ` + ${contentEntries.length} snapshots` : ''} from persistence`);
 		return controller;
@@ -504,47 +684,45 @@ export class HistoryController {
 		if (!this.needsPersist || !this.persistenceService) {
 			return { ok: true };
 		}
-		const fingerprint = PersistenceService.computeFingerprint(this.docId);
-		// Collect ContentStore snapshots for persistence.
-		// Only collect snapshots for nodes near head (last 64 entries) to avoid O(n) resolve.
-		let contentEntries: Array<{ nodeId: number; content: string }> | undefined;
-		if (this.contentStore) {
-			const proj = this.projection;
-			contentEntries = [];
-			// Walk from head upward, collecting anchor snapshots for the head-path chain.
-			// Take snapshots at regular intervals so deep chains can be resolved in
-			// segments even if some intermediate entries are evicted.
-			let cursor: number | null = proj.headId;
-			let depth = 0;
-			const maxDepth = 64;
-			const anchorInterval = 16;
-			while (cursor !== null && depth < maxDepth) {
-				const shouldAnchor = depth % anchorInterval === 0 || depth === 0;
-				if (shouldAnchor || this.contentStore.hasSnapshot(cursor)) {
+		// Serialize through the task queue to avoid TOCTOU with concurrent commit/undo/redo
+		const result = await this.queue.enqueue(this.docId, 'flush', async (token) => {
+			if (token.cancelled) { return { ok: false as const, error: 'Flush cancelled' }; }
+			if (!this.needsPersist || !this.persistenceService) {
+				return { ok: true as const };
+			}
+			const fingerprint = PersistenceService.computeFingerprint(this.docId);
+			// Collect ContentStore snapshots for persistence.
+			// Resolve content for ALL nodes on the head-to-root path, not just snapshots.
+			// Inline-diff nodes need content persisted too for correct restore.
+			let contentEntries: Array<{ nodeId: number; content: string }> | undefined;
+			if (this.contentStore) {
+				const proj = this.projection;
+				contentEntries = [];
+				let cursor: number | null = proj.headId;
+				let depth = 0;
+				const maxDepth = 64;
+				while (cursor !== null && depth < maxDepth) {
 					const content = this.contentStore.resolve(cursor, proj);
 					if (content !== null) {
 						contentEntries.push({ nodeId: cursor, content });
 					}
+					cursor = proj.parentOf.get(cursor) ?? null;
+					depth++;
 				}
-				cursor = proj.parentOf.get(cursor) ?? null;
-				depth++;
 			}
-			if (cursor !== null) {
-				this.log?.warn("CtrlZTree: flushToDisk truncated at depth " + maxDepth + " for " + this.docId + "; " +
-					"anchored every " + anchorInterval + " nodes to preserve chain resolution");
+			const result = await this.persistenceService.saveDocument(
+				fingerprint,
+				this.events,
+				this.projection.lastSeq,
+				contentEntries,
+			);
+			if (result.ok) {
+				this.needsPersist = false;
+			} else {
+				this.log?.warn(`CtrlZTree: flushToDisk failed for ${this.docId}: ${result.error}`);
 			}
-		}
-		const result = await this.persistenceService.saveDocument(
-			fingerprint,
-			this.events,
-			this.projection.lastSeq,
-			contentEntries,
-		);
-		if (result.ok) {
-			this.needsPersist = false;
-		} else {
-			this.log?.warn(`CtrlZTree: flushToDisk failed for ${this.docId}: ${result.error}`);
-		}
+			return result;
+			});
 		return result;
 	}
 
@@ -570,6 +748,10 @@ export class HistoryController {
 		};
 		this.events.push(headMoveEvent);
 		this.projection = project(this.docId, this.events);
+		// Sync legacy tree head so dual stores stay consistent
+		if (this.tree.getAllNodes().has(toHash)) {
+			this.tree.setHead(toHash);
+		}
 		this.needsPersist = true; this.log?.debug(`CtrlZTree: headMove events=${this.events.length}`);
 	}
 
@@ -606,6 +788,26 @@ export class HistoryController {
 			this.log?.info(`CtrlZTree: Compacted events from ${this.events.length} to ${compacted.length}`);
 			this.events = compacted;
 			this.projection = project(this.docId, this.events);
+			// Clean up orphan hash-to-nodeId mappings (nodeIds no longer referenced in any event)
+			const referencedIds = new Set<number>();
+			for (const e of compacted) {
+				const ids: number[] = [];
+				if ('nodeId' in e) { ids.push((e as any).nodeId); }
+				if (e.kind === 'headMove') { ids.push((e as any).from, (e as any).to); }
+				if (e.kind === 'headMove' || e.kind === 'edit') { ids.push((e as any).parentId); }
+				if (e.kind === 'merge') { ids.push((e as any).resultId, (e as any).parentId); }
+				if (e.kind === 'archive' || e.kind === 'delete') { ids.push(...((e as any).nodeIds ?? [])); }
+				if (e.kind === 'reset') { ids.push((e as any).newRootId); }
+				for (const id of ids) {
+					if (typeof id === 'number' && !isNaN(id)) { referencedIds.add(id); }
+				}
+			}
+			for (const [nodeId, hash] of new Map(this.nodeIdToHash)) {
+				if (!referencedIds.has(nodeId)) {
+					this.nodeIdToHash.delete(nodeId);
+					this.hashToNodeId.delete(hash);
+				}
+			}
 			this.needsPersist = true;
 		}
 	}

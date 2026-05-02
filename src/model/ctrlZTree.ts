@@ -86,7 +86,7 @@ export class CtrlZTree {
         return path;
     }
 
-    set(content: string, cursorPosition?: vscode.Position): string {
+    set(content: string, cursorPosition?: vscode.Position, timestampOverride?: number): string {
         const currentContent = this.head ? this.reconstructContent(this.head) : this.trueEmptyRootContent;
 
         if (currentContent === content) {
@@ -122,7 +122,7 @@ export class CtrlZTree {
             parent: this.head,
             children: [],
             diff: serializedDiff,
-            timestamp: Date.now(),
+            timestamp: timestampOverride ?? Date.now(),
             cursorPosition: cursorPosition
         };
 

@@ -53,7 +53,7 @@ export interface NodeUpdate {
 }
 
 export interface OperationPlanItem {
-	operation: 'archive' | 'delete';
+	operation: 'archive' | 'delete' | 'merge' | 'prune';
 	targetIds: NodeId[];
 	reason: string;
 	risk: 'low' | 'medium' | 'high';

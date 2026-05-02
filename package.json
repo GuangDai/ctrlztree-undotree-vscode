@@ -45,10 +45,6 @@
         "title": "CtrlZTree: Redo"
       },
       {
-        "command": "ctrlztree.visualize",
-        "title": "CtrlZTree: Visualize History Tree"
-      },
-      {
         "command": "ctrlztree.history.refresh",
         "title": "CtrlZTree: Refresh History Tree"
       },
@@ -59,6 +55,10 @@
       {
         "command": "ctrlztree.history.diffWithParent",
         "title": "CtrlZTree: Diff with Parent"
+      },
+      {
+        "command": "ctrlztree.history.diffWithCurrent",
+        "title": "CtrlZTree: Diff with Current"
       },
       {
         "command": "ctrlztree.history.mergeChain",
@@ -75,6 +75,22 @@
       {
         "command": "ctrlztree.ai.testConnection",
         "title": "CtrlZTree: Test AI Connection"
+      },
+      {
+        "command": "ctrlztree.ai.summarizeCurrentNode",
+        "title": "CtrlZTree: AI Summarize Current Node"
+      },
+      {
+        "command": "ctrlztree.ai.renameNode",
+        "title": "CtrlZTree: AI Rename Node"
+      },
+      {
+        "command": "ctrlztree.ai.summarizeNode",
+        "title": "CtrlZTree: AI Summarize Node"
+      },
+      {
+        "command": "ctrlztree.ai.proposeMerge",
+        "title": "CtrlZTree: AI Propose Merge"
       }
     ],
     "keybindings": [
@@ -117,12 +133,26 @@
     "menus": {
       "view/item/context": [
         {
-          "command": "ctrlztree.history.navigateToNode",
-          "when": "view == ctrlztree.history && viewItem == ctrlztree.node.branchTip"
+          "command": "ctrlztree.history.diffWithCurrent",
+          "when": "view == ctrlztree.history && viewItem =~ /ctrlztree.node/"
         },
         {
           "command": "ctrlztree.history.diffWithParent",
           "when": "view == ctrlztree.history && viewItem =~ /ctrlztree.node/"
+        },
+        {
+          "command": "ctrlztree.history.navigateToNode",
+          "when": "view == ctrlztree.history && viewItem =~ /ctrlztree.node/"
+        },
+        {
+          "command": "ctrlztree.ai.renameNode",
+          "when": "view == ctrlztree.history && viewItem =~ /ctrlztree.node/",
+          "group": "ai@1"
+        },
+        {
+          "command": "ctrlztree.ai.summarizeNode",
+          "when": "view == ctrlztree.history && viewItem =~ /ctrlztree.node/",
+          "group": "ai@2"
         }
       ]
     },
@@ -171,13 +201,42 @@
           "type": "string",
           "default": "off",
           "enum": ["off", "ask", "on"],
-          "description": "History persistence mode. off=no persistence, ask=prompt on first save, on=automatically encrypt and persist"
+          "markdownDescription": "History persistence mode. Changes take effect immediately. When switching from `off` to `on` or `ask`, existing open documents will be persisted on the next change. When switching to `off`, pending data is flushed to disk first. **Requires an encryption key to be stored in VS Code SecretStorage.**"
         },
         "ctrlztree.logging.level": {
           "type": "string",
           "default": "info",
           "enum": ["debug", "info", "warn", "error", "off"],
           "description": "Output channel log level. debug=verbose, info=normal, warn=warnings only, error=errors only, off=silent"
+        },
+        "ctrlztree.treeView.maxDepth": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Maximum depth of branch hierarchy in the tree view"
+        },
+        "ctrlztree.treeView.showTimestamps": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show timestamps next to tree nodes"
+        },
+        "ctrlztree.treeView.showHashPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show shortened hash next to tree nodes"
+        },
+        "ctrlztree.treeView.previewLength": {
+          "type": "integer",
+          "default": 50,
+          "minimum": 20,
+          "maximum": 120,
+          "description": "Maximum length of content preview in tree node labels"
+        },
+        "ctrlztree.treeView.showAiLabels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show AI-generated names and summaries in the tree view when available"
         }
       }
     }
