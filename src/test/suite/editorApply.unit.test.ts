@@ -5,12 +5,10 @@ suite('applyEditAndVerify', () => {
 	let testDoc: vscode.TextDocument | undefined;
 
 	suiteSetup(async () => {
-		// Create a real untitled document in the extension host for testing
 		testDoc = await vscode.workspace.openTextDocument({ content: 'hello world' });
 	});
 
 	suiteTeardown(async () => {
-		// Close the document if it's still open
 		if (testDoc && !testDoc.isClosed) {
 			try {
 				const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs);
@@ -30,23 +28,27 @@ suite('applyEditAndVerify', () => {
 		assert.strictEqual(applyEditAndVerify.length, 2);
 	});
 
-	test('should verify content matches after successful edit', () => {
-		assert.ok(testDoc, 'Test document should be available');
+	test('returns ok when target content matches document text', async () => {
+		const { applyEditAndVerify } = require('../../utils/editorApply');
 		const content = testDoc!.getText();
-		assert.strictEqual(typeof content, 'string');
-		assert.ok(content.length > 0, 'Document should have content');
+		const result = await applyEditAndVerify(testDoc!, content);
+		assert.strictEqual(result.ok, true, `Expected ok=true but got error: ${result.error}`);
 	});
 
-	test('should detect content mismatch', () => {
-		assert.ok(testDoc, 'Test document should be available');
-		const content = testDoc!.getText();
-		// Content that differs from the actual document text
-		const differentContent = 'completely different content';
-		assert.notStrictEqual(content, differentContent, 'Different content should not match');
+	test('returns not ok when target content differs from document text', async () => {
+		const { applyEditAndVerify } = require('../../utils/editorApply');
+		const result = await applyEditAndVerify(testDoc!, 'completely different content');
+		assert.strictEqual(result.ok, false);
+		// Error message should indicate a mismatch
+		assert.ok(
+			result.error?.toLowerCase().includes('match') || result.error?.toLowerCase().includes('content'),
+			`Error should mention content mismatch, got: ${result.error}`
+		);
 	});
 
-	test('should handle empty string target', () => {
-		assert.ok(testDoc, 'Test document should be available');
-		assert.ok(typeof '' === 'string');
+	test('handles empty string target gracefully', async () => {
+		const { applyEditAndVerify } = require('../../utils/editorApply');
+		const result = await applyEditAndVerify(testDoc!, '');
+		assert.strictEqual(typeof result.ok, 'boolean', 'Should return a result with ok field');
 	});
 });
