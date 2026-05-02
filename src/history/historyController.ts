@@ -131,13 +131,17 @@ export class HistoryController {
 			}
 			const nodeId = this.hashToNodeId.get(newHash)!;
 			const parentHash = this.tree.getAllNodes().get(newHash)?.parent;
-			let parentId: NodeId = 0;
+			let parentId: NodeId = this.projection.headId;
 			if (parentHash) {
 				if (!this.hashToNodeId.has(parentHash)) {
 					this.mapHash(parentHash, this.nextNodeId++);
 				}
 				parentId = this.hashToNodeId.get(parentHash)!;
 			}
+				if (parentId === 0 && this.projection.rootId !== 0) {
+					this.log?.warn(`CtrlZTree: commit parentId resolved to unexpected root; using head ${this.projection.headId}`);
+					parentId = this.projection.headId;
+				}
 
 			const newContent = this.tree.getContent(newHash);
 			const diffStr = this.tree.getAllNodes().get(newHash)?.diff ?? '';
