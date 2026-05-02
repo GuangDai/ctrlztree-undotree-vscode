@@ -55,13 +55,21 @@ export function activate(context: vscode.ExtensionContext) {
     log.setLevel(logLevel);
     log.info('CtrlZTree: Extension activating...');
 
-    // Dynamic log level change listener
+    // Dynamic configuration change listener
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('ctrlztree.logging.level')) {
                 const newLevel = vscode.workspace.getConfiguration('ctrlztree').get<string>('logging.level', 'info') as LogLevel;
                 log.setLevel(newLevel);
                 log.info(`CtrlZTree: Log level changed to ${newLevel}`);
+            }
+            if (e.affectsConfiguration('ctrlztree.persistence.mode')) {
+                const newMode = vscode.workspace.getConfiguration('ctrlztree').get<string>('persistence.mode', 'off') as 'off' | 'ask' | 'on';
+                if (newMode === 'off' && extensionState.persistTimer) {
+                    clearInterval(extensionState.persistTimer);
+                    extensionState.persistTimer = null;
+                    log.info('CtrlZTree: Persistence disabled at runtime; persist timer stopped.');
+                }
             }
         })
     );
