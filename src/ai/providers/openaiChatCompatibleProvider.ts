@@ -24,10 +24,19 @@ export function buildOpenAIChatCompatibleRequest(
 		messages.push({ role: msg.role, content: msg.content });
 	}
 
+	// Use max_tokens for older models (gpt-3.5, etc.) that don't support
+	// max_completion_tokens; use max_completion_tokens for newer models.
+	const modelLower = req.model.toLowerCase();
+	const isLegacyModel = modelLower.includes('gpt-3.5') || modelLower.includes('gpt-3')
+		|| modelLower.includes('text-') || modelLower.includes('davinci')
+		|| modelLower.includes('curie') || modelLower.includes('babbage')
+		|| modelLower.includes('ada');
+	const tokenParam = isLegacyModel ? 'max_tokens' : 'max_completion_tokens';
+
 	const body: Record<string, unknown> = {
 		model: req.model,
 		messages,
-		max_completion_tokens: req.maxOutputTokens,
+		[tokenParam]: req.maxOutputTokens,
 		temperature: req.temperature,
 		top_p: req.topP,
 	};
