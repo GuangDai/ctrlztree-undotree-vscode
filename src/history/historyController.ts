@@ -354,6 +354,12 @@ export class HistoryController {
 		if (!plan.valid) {
 			return { ok: false, error: 'Merge plan is not valid' };
 		}
+		// Save mutable state for rollback if projection fails
+		const savedHead = this.tree.getHead();
+		const savedProjection = this.projection;
+		const savedNextNodeId = this.nextNodeId;
+		const savedNextSeq = this.nextSeq;
+		const savedNextTxId = this.nextTxId;
 		// Filter out already-archived or deleted source nodes to avoid duplicate archive references
 		const activeSources = plan.sourceIds.filter(id =>
 			!this.projection.archivedNodes.has(id) && !this.projection.deletedNodes.has(id)
@@ -385,7 +391,19 @@ export class HistoryController {
 			this.tree.setHead(parentHash);
 		}
 		this.tree.set(resultContent);
-		this.projection = project(this.docId, this.events);
+		try {
+			this.projection = project(this.docId, this.events);
+		} catch (err: any) {
+			// Full rollback: restore all mutable state
+			this.events.pop();
+			if (savedHead) { this.tree.setHead(savedHead); }
+			this.nextNodeId = savedNextNodeId;
+			this.nextSeq = savedNextSeq;
+			this.nextTxId = savedNextTxId;
+			this.projection = savedProjection;
+			this.log?.error(`CtrlZTree: merge plan projection failed; full rollback applied: ${err?.message}`);
+			return { ok: false, error: `Merge failed: ${(err as Error).message}` };
+		}
 		this.needsPersist = true;
 		this.log?.info(`CtrlZTree: Merged ${plan.sourceIds.length} nodes -> #${resultNodeId}`);
 		return { ok: true, nodeId: resultNodeId };
