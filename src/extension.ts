@@ -31,6 +31,7 @@ import { customHttpJsonHooks } from './ai/providers/customHttpJsonProvider';
 import { DocumentTaskQueue } from './concurrency/documentTaskQueue';
 import { BaseAiProvider } from './ai/providers/base';
 import { AiService } from './ai/aiService';
+import { AutoRenameService } from './ai/autoRenameService';
 import { RequestScheduler, DEFAULT_SCHEDULER_CONFIG } from './concurrency/requestScheduler';
 import { Logger, LogLevel } from './utils/logger';
 import { isTrackableDocument } from './utils/extensionUtils';
@@ -153,6 +154,7 @@ export function activate(context: vscode.ExtensionContext) {
         onDocumentCommitted: (docUri) => {
             const controller = extensionState.historyControllers.get(docUri);
             historyTreeProvider.setController(controller ?? null, docUri);
+            autoRenameService.onDocumentCommitted(docUri, controller ?? undefined);
         }
     });
     context.subscriptions.push(changeTracker);
@@ -205,6 +207,15 @@ export function activate(context: vscode.ExtensionContext) {
         maxRetries,
     }, log)
     const aiService = new AiService({ registry: aiRegistry, scheduler: aiScheduler, secretStore, logger: log });
+
+    const autoRenameEnabled = vsConfigForAi.get<boolean>('ai.autoRename.enabled', false)
+    const autoRenameDebounceMs = vsConfigForAi.get<number>('ai.autoRename.debounceMs', 2000)
+    const autoRenameService = new AutoRenameService(aiService, log, {
+        enabled: autoRenameEnabled,
+        debounceMs: autoRenameDebounceMs,
+        minDiffBytes: CONFIG_DEFAULTS.ai.autoRename.defaultMinDiffBytes,
+        maxDiffBytes: CONFIG_DEFAULTS.ai.autoRename.defaultMaxDiffBytes,
+    })
 
     // ---- 12. Command registrations ----
     registerTreeAndNavigationCommands(context, {
