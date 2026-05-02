@@ -157,20 +157,17 @@ suite('HistoryController', () => {
 	});
 
 	suite('recordHeadMove', () => {
-		test('generates headMove event on recordHeadMove', () => {
+		test('generates headMove event on recordHeadMove', async () => {
 			const beforeCount = controller.getEvents().length;
-			// Get actual hashes from the tree
 			const head = controller.getHead()!;
-			// Commit to create a new node
-			controller.commit('new content').then(() => {
-				const newHead = controller.getHead()!;
-				controller.recordHeadMove(head, newHead, 'checkout');
-				const afterCount = controller.getEvents().length;
-				assert.ok(afterCount > beforeCount, 'should have more events');
-				const headMoves = controller.getEvents().filter(e => e.kind === 'headMove');
-				assert.ok(headMoves.length >= 1);
-				assert.strictEqual((headMoves[headMoves.length - 1] as any).reason, 'checkout');
-			});
+			await controller.commit('new content');
+			const newHead = controller.getHead()!;
+			controller.recordHeadMove(head, newHead, 'checkout');
+			const afterCount = controller.getEvents().length;
+			assert.ok(afterCount > beforeCount, 'should have more events');
+			const headMoves = controller.getEvents().filter(e => e.kind === 'headMove');
+			assert.ok(headMoves.length >= 1);
+			assert.strictEqual((headMoves[headMoves.length - 1] as any).reason, 'checkout');
 		});
 
 		test('recordHeadMove updates projection', async () => {
