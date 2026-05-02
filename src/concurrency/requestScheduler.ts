@@ -184,13 +184,12 @@ export class RequestScheduler {
 	}
 
 	private drainQueue(): void {
-		if (this.queue.length === 0) {return;}
-		if (this.concurrent >= this.config.maxConcurrentRequests) {return;}
-
-		const next = this.queue.shift()!;
-		this.executeRequest(next.req, 0)
-			.then(next.resolve)
-			.catch(next.reject);
+		while (this.queue.length > 0 && this.concurrent < this.config.maxConcurrentRequests) {
+			const next = this.queue.shift()!;
+			this.executeRequest(next.req, 0)
+				.then(next.resolve)
+				.catch(next.reject);
+		}
 	}
 
 	private addController(docId: string, ctrl: AbortController): void {
