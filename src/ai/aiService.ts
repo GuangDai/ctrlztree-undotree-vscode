@@ -4,14 +4,14 @@ import { SecretStore } from '../security/secretStore';
 import { ClampedAiConfig } from '../config/configService';
 import { UnifiedAiRequest, UnifiedAiResponse, AiProviderError } from './types';
 import { redactSensitiveData } from './redactor';
-import { Logger } from '../utils/logger';
+import { Logger, ILogger } from '../utils/logger';
 import { validateAiResponse } from './operationPlanner';
 
 export interface AiServiceDeps {
 	registry: ProviderRegistry;
 	scheduler: RequestScheduler;
 	secretStore: SecretStore;
-	logger?: Logger;
+	logger?: ILogger;
 	schedulerConfig?: SchedulerConfig;
 }
 
@@ -26,13 +26,13 @@ export class AiService {
 	private registry: ProviderRegistry;
 	private scheduler: RequestScheduler;
 	private secretStore: SecretStore;
-	private log: Logger;
+	private log: ILogger;
 
 	constructor(deps: AiServiceDeps) {
 		this.registry = deps.registry;
 		this.scheduler = deps.scheduler;
 		this.secretStore = deps.secretStore;
-		this.log = deps.logger ?? new Logger({ appendLine: () => {} } as any);
+		this.log = deps.logger ?? new Logger({ appendLine: () => {} } as any, 'aiService');
 	}
 
 	async testConnection(config: ClampedAiConfig): Promise<TestConnectionResult> {
@@ -126,7 +126,9 @@ export class AiService {
 		}
 
 		const label = `ai-${request.task}`;
-		return this.scheduler.schedule({
+			const reqLog = this.log.withContext({ docId })
+			reqLog.debug(`ai: sending request task=${request.task} label=${label}`)
+			return this.scheduler.schedule({
 			docId,
 			label,
 			execute: async (signal) => {
