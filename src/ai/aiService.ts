@@ -95,7 +95,9 @@ export class AiService {
 			})}`);
 
 			if (!('ok' in result) || result.ok !== false) {
-				return { ok: true, responseSummary: JSON.stringify(result).substring(0, 300) };
+				const summary = JSON.stringify(result);
+				const redacted = redactSensitiveData(summary);
+				return { ok: true, responseSummary: redacted.redacted.substring(0, 300) };
 			}
 			const err = result as AiProviderError;
 			this.log.warn(`CtrlZTree AI: Provider error: status=${err.statusCode} error=${err.error}`);
