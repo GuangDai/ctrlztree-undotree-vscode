@@ -49,6 +49,14 @@ export class HistoryController {
 	private nodeIdToHash = new Map<NodeId, string>();
 	private needsPersist = false;
 
+	private safeGetTreeHead(): string | null {
+		const head = this.tree.getHead();
+		if (head === null) {
+			this.log?.error('CtrlZTree: getHead() returned null — projection/tree may be desynchronized');
+		}
+		return head;
+	}
+
 	constructor(deps: HistoryControllerDeps) {
 		this.docId = deps.docId;
 		this.tree = deps.tree;
@@ -197,11 +205,12 @@ export class HistoryController {
 			}
 
 			// Record headMove in events/projection without touching legacy tree
-			if (!this.hashToNodeId.has(this.tree.getHead()!)) {
-				const oldHash = this.tree.getHead()!;
-				this.mapHash(oldHash, this.nextNodeId++);
+			const undoHead = this.safeGetTreeHead();
+			if (!undoHead) { return { hash: null, content: null }; }
+			if (!this.hashToNodeId.has(undoHead)) {
+				this.mapHash(undoHead, this.nextNodeId++);
 			}
-			const oldNodeId = this.hashToNodeId.get(this.tree.getHead()!)!;
+			const oldNodeId = this.hashToNodeId.get(undoHead)!;
 			const newNodeId = parentId; // parentId IS the nodeId from projection
 
 			const headMoveEvent: HeadMoveEvent = {
@@ -250,7 +259,9 @@ export class HistoryController {
 				targetId = visibleChildren[0]; // First visible child
 			}
 
-			const oldNodeId = this.hashToNodeId.get(this.tree.getHead()!) ?? currentHead;
+			const redoHead = this.safeGetTreeHead();
+			if (!redoHead) { return { hash: null, content: null }; }
+			const oldNodeId = this.hashToNodeId.get(redoHead) ?? currentHead;
 
 			const headMoveEvent: HeadMoveEvent = {
 				kind: 'headMove',
@@ -267,7 +278,8 @@ export class HistoryController {
 			this.projection = project(this.docId, this.events);
 			// Sync legacy tree head
 			if (childHash) { this.tree.setHead(childHash); } else { this.tree.y(); }
-			const newHash = this.tree.getHead()!;
+			const newHash = this.safeGetTreeHead();
+			if (!newHash) { return { hash: null, content: null }; }
 			this.needsPersist = true;
 			return { hash: newHash, content: this.tree.getContent() };
 		});
@@ -295,7 +307,8 @@ export class HistoryController {
 				return { success: false, content: null };
 			}
 
-			const oldNodeId = this.hashToNodeId.get(this.tree.getHead()!) ?? proj.headId;
+			const checkoutHead = this.safeGetTreeHead();
+			const oldNodeId = checkoutHead ? (this.hashToNodeId.get(checkoutHead) ?? proj.headId) : proj.headId;
 
 			const headMoveEvent: HeadMoveEvent = {
 				kind: 'headMove',
@@ -366,7 +379,8 @@ export class HistoryController {
 		};
 		this.events.push(mergeEvent);
 		// Also set content in legacy tree for consistency
-		const parentHash = this.tree.getAllNodes().get(this.tree.getHead()!)?.parent;
+		const mergeHead = this.safeGetTreeHead();
+		const parentHash = mergeHead ? this.tree.getAllNodes().get(mergeHead)?.parent : undefined;
 		if (parentHash) {
 			this.tree.setHead(parentHash);
 		}
