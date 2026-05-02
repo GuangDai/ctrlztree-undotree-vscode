@@ -22,6 +22,8 @@ interface ChangeTrackerDeps {
 }
 
 const WHITESPACE_FLUSH_DELAY = 500; // 500 ms
+const MAX_RESCHEDULE_RETRIES = 10;
+const RESCHEDULE_DELAY = 200;
 
 export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.Disposable {
     const {
@@ -121,14 +123,24 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         const docUriString = document.uri.toString();
 
         if (processingDocuments.has(docUriString)) {
-            log.debug(`CtrlZTree: rescheduling ${docUriString} due to ongoing processing.`);
-            pendingChanges.set(docUriString, content);
+            const retryCount = (state.rescheduleRetryCounts?.get(docUriString) ?? 0) + 1;
+            if (retryCount > MAX_RESCHEDULE_RETRIES) {
+                log.warn(`CtrlZTree: ${docUriString} exceeded max reschedule retries (${MAX_RESCHEDULE_RETRIES}); dropping change`);
+                pendingChanges.delete(docUriString);
+                state.rescheduleRetryCounts?.delete(docUriString);
+                return;
+            }
+            state.rescheduleRetryCounts.set(docUriString, retryCount);
+            log.debug(`CtrlZTree: rescheduling ${docUriString} (retry ${retryCount}/${MAX_RESCHEDULE_RETRIES}) due to ongoing processing.`);
+            // Capture content in closure to avoid reading stale pendingChanges after delay
+            const capturedContent = content;
+            pendingChanges.set(docUriString, capturedContent);
             const timeout = setTimeout(() => {
                 const pendingContent = pendingChanges.get(docUriString);
                 if (pendingContent !== undefined) {
                     processDocumentChange(document, pendingContent);
                 }
-            }, 50);
+            }, RESCHEDULE_DELAY);
             documentChangeTimeouts.set(docUriString, timeout);
             return;
         }
@@ -179,6 +191,7 @@ export function registerDocumentChangeTracking(deps: ChangeTrackerDeps): vscode.
         } finally {
             processingDocuments.delete(docUriString);
             pendingChanges.delete(docUriString);
+            state.rescheduleRetryCounts?.delete(docUriString);
         }
     }
 }

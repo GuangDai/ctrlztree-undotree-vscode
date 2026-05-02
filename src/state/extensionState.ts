@@ -16,6 +16,7 @@ export interface ExtensionState {
     activeVisualizationPanels: Map<string, vscode.WebviewPanel>;
     panelToFullHashMap: Map<vscode.WebviewPanel, Map<string, string>>;
     processingDocuments: Set<string>;
+    rescheduleRetryCounts: Map<string, number>;
     lastValidEditorUri: string | null;
     lastOpenedDiffEditor: vscode.TextEditor | null;
     editTokens: ApplyEditTokenSet | null;
@@ -34,6 +35,7 @@ export function createExtensionState(): ExtensionState {
         activeVisualizationPanels: new Map<string, vscode.WebviewPanel>(),
         panelToFullHashMap: new Map<vscode.WebviewPanel, Map<string, string>>(),
         processingDocuments: new Set<string>(),
+        rescheduleRetryCounts: new Map<string, number>(),
         lastValidEditorUri: null,
         lastOpenedDiffEditor: null,
         editTokens: null,
