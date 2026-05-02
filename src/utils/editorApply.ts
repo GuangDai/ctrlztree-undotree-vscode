@@ -23,7 +23,12 @@ export async function applyEditAndVerify(document: vscode.TextDocument, targetCo
 	const currentContent = document.getText();
 	const currentNormalized = normalizeEOL(currentContent, document.eol);
 	if (currentNormalized !== normalizedContent) {
-		return { ok: false, error: 'Document content does not match target content after apply' };
+		// Check if mismatch is formatting-only (common with formatters like Prettier)
+		const whitespaceOnly = currentNormalized.replace(/\s+/g, ' ') === normalizedContent.replace(/\s+/g, ' ');
+		const hint = whitespaceOnly
+			? ' (content differs only in whitespace — a formatter may have run post-edit)'
+			: '';
+		return { ok: false, error: `Document content does not match target content after apply${hint}` };
 	}
 
 	return { ok: true };
