@@ -80,7 +80,8 @@ export class BaseAiProvider implements AiProvider {
             return this.parseResponse(response.status, responseText, this.hooks);
         } catch (err: any) {
             if (err?.name === 'AbortError' || signal?.aborted) {
-                return { ok: false, error: 'Request aborted', retryable: false };
+                const reason = signal && 'reason' in signal ? (signal as any).reason : undefined
+                return { ok: false, error: 'Request aborted', retryable: reason === 'Request timeout' }
             }
             return { ok: false, error: `Network error: ${err?.message || 'Unknown'}`, retryable: true };
         }
