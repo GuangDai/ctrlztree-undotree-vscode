@@ -461,6 +461,15 @@ export class HistoryController {
 			}
 		}
 		controller.projection = project(controller.docId, controller.events);
+		// Seed legacy tree with content from ALL projection nodes (not just headPath)
+		// so branch nodes are available for checkout after restore.
+		for (const [nodeId] of controller.projection.byId) {
+			if (nodeId === controller.projection.rootId) { continue; }
+			const content = controller.contentStore?.resolve(nodeId, controller.projection);
+			if (content !== null && content !== undefined) {
+				controller.tree.set(content, undefined);
+			}
+		}
 		controller.needsPersist = false; // Just loaded from disk
 		controller.log?.info(`CtrlZTree: Restored ${events.length} events${contentEntries ? ` + ${contentEntries.length} snapshots` : ''} from persistence`);
 		return controller;
