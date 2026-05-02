@@ -334,6 +334,13 @@ export class HistoryController {
 		return this.projection;
 	}
 
+	// Set head directly in the legacy tree and re-project without emitting
+	// a headMove event. Used for rollbacks to avoid duplicate events.
+	setHeadDirectly(hash: string): void {
+		this.tree.setHead(hash);
+		this.projection = project(this.docId, this.events);
+	}
+
 	getTree(): CtrlZTree {
 		return this.tree;
 	}

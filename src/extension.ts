@@ -622,8 +622,8 @@ export function activate(context: vscode.ExtensionContext) {
             if (savedHead) {
                 const failedHead = navResult.hash; // head was moved here by controller.undo()
                 tree.setHead(savedHead);
-                // Record rollback: from failed position back to saved position
-                controller.recordHeadMove(failedHead, savedHead, 'undo');
+                // Restore tree state without emitting a duplicate headMove event
+                controller.setHeadDirectly(savedHead);
             }
             return;
         }
@@ -675,7 +675,7 @@ export function activate(context: vscode.ExtensionContext) {
                 if (savedHead) {
                     const failedHead = navResult.hash;
                     tree.setHead(savedHead);
-                    controller.recordHeadMove(failedHead, savedHead, 'redo');
+                    controller.setHeadDirectly(savedHead);
                 }
                 return;
             }
@@ -713,7 +713,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (savedHead) {
                 const failedHead = navResult.hash;
                 tree.setHead(savedHead);
-                controller.recordHeadMove(failedHead, savedHead, 'redo');
+                controller.setHeadDirectly(savedHead);
             }
             return;
         }
