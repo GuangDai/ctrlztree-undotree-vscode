@@ -387,4 +387,54 @@ suite('RequestScheduler', () => {
 		const result = await running;
 		assert.strictEqual(result, 'a');
 	});
+
+	test('uses per-task timeout from taskTimeouts config', async function () {
+		this.timeout(10000)
+		const sched = new RequestScheduler({
+			maxConcurrentRequests: 5,
+			maxRequestsPerHour: 1000,
+			timeoutMs: 500,
+			maxRetries: 0,
+			taskTimeouts: { 'ai-propose_merge': 50 },
+		})
+
+		try {
+			await sched.schedule({
+				docId: 'doc1',
+				label: 'ai-propose_merge',
+				execute: async (signal) => {
+					while (!signal.aborted) { await delay(10) }
+					throw new Error('Should not reach')
+				},
+			})
+			assert.fail('Should have timed out')
+		} catch (e: any) {
+			assert.ok(e.message.includes('timed out'), e.message)
+		}
+	})
+
+	test('falls back to default timeout when task not in taskTimeouts', async function () {
+		this.timeout(10000)
+		const sched = new RequestScheduler({
+			maxConcurrentRequests: 5,
+			maxRequestsPerHour: 1000,
+			timeoutMs: 50,
+			maxRetries: 0,
+			taskTimeouts: { 'ai-rename_node': 30000 },
+		})
+
+		try {
+			await sched.schedule({
+				docId: 'doc1',
+				label: 'ai-propose_merge',
+				execute: async (signal) => {
+					while (!signal.aborted) { await delay(10) }
+					throw new Error('Should not reach')
+				},
+			})
+			assert.fail('Should have timed out')
+		} catch (e: any) {
+			assert.ok(e.message.includes('timed out'), e.message)
+		}
+	})
 });
