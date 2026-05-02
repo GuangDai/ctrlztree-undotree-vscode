@@ -73,6 +73,8 @@ function makeValidConfig(overrides?: Partial<ClampedAiConfig>): ClampedAiConfig 
         provider: 'openai-chat-compatible',
         model: 'test-model',
         baseUrl: 'https://api.example.com/v1/chat/completions',
+        timeoutMs: 30000,
+        maxRetries: 2,
         valid: true,
         errors: [],
         ...overrides,

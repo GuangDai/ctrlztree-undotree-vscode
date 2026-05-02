@@ -11,6 +11,8 @@ export interface AiUserConfig {
 	provider: string;
 	model: string;
 	baseUrl: string;
+	timeoutMs: number;
+	maxRetries: number;
 }
 
 export interface ClampedAiConfig {
@@ -18,6 +20,8 @@ export interface ClampedAiConfig {
 	provider: string;
 	model: string;
 	baseUrl: string;
+	timeoutMs: number;
+	maxRetries: number;
 	valid: boolean;
 	errors: string[];
 }
@@ -39,12 +43,13 @@ export function clampConfig(
 		if (!Number.isFinite(val) || Number.isNaN(val)) {
 			onWarn?.(`CtrlZTree Config: maxHistoryNodesPerDocument is NaN/infinite, using default ${CONFIG_DEFAULTS.maxHistoryNodesPerDocument}`);
 		} else {
+			const floored = Math.floor(val);
 			maxHistoryNodesPerDocument = Math.max(
 				CONFIG_DEFAULTS.maxHistoryNodesPerDocumentMin,
-				Math.min(CONFIG_DEFAULTS.maxHistoryNodesPerDocumentMax, Math.floor(val))
+				Math.min(CONFIG_DEFAULTS.maxHistoryNodesPerDocumentMax, floored)
 			);
-			if (maxHistoryNodesPerDocument !== val) {
-				onWarn?.(`CtrlZTree Config: maxHistoryNodesPerDocument clamped from ${val} to ${maxHistoryNodesPerDocument}`);
+			if (maxHistoryNodesPerDocument !== floored) {
+				onWarn?.(`CtrlZTree Config: maxHistoryNodesPerDocument clamped from ${floored} to ${maxHistoryNodesPerDocument}`);
 			}
 		}
 	} else if (raw.maxHistoryNodesPerDocument !== undefined) {
@@ -57,12 +62,13 @@ export function clampConfig(
 		if (!Number.isFinite(val) || Number.isNaN(val)) {
 			onWarn?.(`CtrlZTree Config: maxTrackedDocuments is NaN/infinite, using default ${CONFIG_DEFAULTS.maxTrackedDocuments}`);
 		} else {
+			const floored = Math.floor(val);
 			maxTrackedDocuments = Math.max(
 				CONFIG_DEFAULTS.maxTrackedDocumentsMin,
-				Math.min(CONFIG_DEFAULTS.maxTrackedDocumentsMax, Math.floor(val))
+				Math.min(CONFIG_DEFAULTS.maxTrackedDocumentsMax, floored)
 			);
-			if (maxTrackedDocuments !== val) {
-				onWarn?.(`CtrlZTree Config: maxTrackedDocuments clamped from ${val} to ${maxTrackedDocuments}`);
+			if (maxTrackedDocuments !== floored) {
+				onWarn?.(`CtrlZTree Config: maxTrackedDocuments clamped from ${floored} to ${maxTrackedDocuments}`);
 			}
 		}
 	} else if (raw.maxTrackedDocuments !== undefined) {
@@ -78,7 +84,7 @@ export function clampAiConfig(raw: Partial<AiUserConfig>): ClampedAiConfig {
 	const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : CONFIG_DEFAULTS.ai.defaultEnabled;
 
 	const validProviders = CONFIG_DEFAULTS.ai.validProviders as readonly string[];
-	const provider = typeof raw.provider === 'string' ? raw.provider : CONFIG_DEFAULTS.ai.defaultProvider;
+	const provider = typeof raw.provider === 'string' ? raw.provider.trim() : CONFIG_DEFAULTS.ai.defaultProvider;
 	if (!validProviders.includes(provider)) {
 		errors.push(`Invalid AI provider "${provider}". Must be one of: ${validProviders.join(', ')}`);
 	}
@@ -89,15 +95,25 @@ export function clampAiConfig(raw: Partial<AiUserConfig>): ClampedAiConfig {
 	}
 
 	const baseUrl = typeof raw.baseUrl === 'string' ? raw.baseUrl.trim() : '';
-	if (enabled && baseUrl !== '' && !isValidUrl(baseUrl)) {
+	if (enabled && baseUrl === '') {
+		errors.push('AI baseUrl is required when AI is enabled');
+	} else if (enabled && !isValidUrl(baseUrl)) {
 		errors.push(`Invalid AI baseUrl format: "${baseUrl}"`);
 	}
+
+	const timeoutMs = typeof raw.timeoutMs === 'number' && raw.timeoutMs >= 5000 && raw.timeoutMs <= 300000
+		? raw.timeoutMs : CONFIG_DEFAULTS.ai.defaultTimeoutMs
+
+	const maxRetries = typeof raw.maxRetries === 'number' && raw.maxRetries >= 0 && raw.maxRetries <= 5
+		? raw.maxRetries : CONFIG_DEFAULTS.ai.defaultMaxRetries
 
 	return {
 		enabled,
 		provider: validProviders.includes(provider) ? provider : CONFIG_DEFAULTS.ai.defaultProvider,
 		model,
 		baseUrl,
+		timeoutMs,
+		maxRetries,
 		valid: errors.length === 0,
 		errors,
 	};
